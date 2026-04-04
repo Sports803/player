@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -8,12 +9,23 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdn.jwplayer.com/libraries/IDzF9Zmk.js"></script>
+<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y5EVJ9NQ5B"></script>
 <script>
 window.dataLayer=window.dataLayer||[];
 function gtag(){dataLayer.push(arguments);}
 gtag('js',new Date());
-gtag('config','G-Y5EVJ9NQ5B',{send_page_view:true,transport_type:'beacon'});
+gtag('config','G-Y5EVJ9NQ5B',{
+  send_page_view:true,
+  transport_type:'beacon',
+  custom_map:{
+    dimension1:'stream_index',
+    dimension2:'adapter_name',
+    dimension3:'stream_type',
+    dimension4:'app_state',
+    dimension5:'trigger_source',
+  }
+});
 </script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -28,221 +40,173 @@ gtag('config','G-Y5EVJ9NQ5B',{send_page_view:true,transport_type:'beacon'});
 }
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
 #app{display:flex;flex-direction:column;width:100%;height:100%;position:fixed;inset:0}
-
-/* Stage */
 #stage{position:relative;flex:1;background:#000;overflow:hidden}
 #player-host,#embed-host{position:absolute;inset:0;width:100%;height:100%}
 #player-host{background:#000;z-index:2;display:none}
 #embed-host{z-index:3;display:none;flex-direction:column;background:#000}
 #embed-host.active{display:flex}
-#embed-frame{flex:1;width:100%;border:none;display:none}
-#embed-frame.ready{display:block}
-
-/* Init placeholder */
-#init-ph{
-  position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;
-  flex-direction:column;gap:12px;background:var(--bg);
-}
-#init-ph p{color:var(--dim);font-size:14px}
-#init-ph .spinner{width:32px;height:32px;border:3px solid var(--border2);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}
-
-/* Auto Button */
-#auto-btn{
-  position:absolute;top:12px;right:14px;z-index:50;
-  display:flex;align-items:center;gap:6px;
-  padding:6px 14px;height:36px;
-  background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.15);
-  border-radius:100px;color:#fff;font-size:12px;font-weight:600;
-  cursor:pointer;backdrop-filter:blur(12px);transition:all .2s;
-  user-select:none;
-}
-#auto-btn:hover{background:rgba(229,24,26,0.9);border-color:var(--red)}
-#auto-btn svg{width:16px;height:16px;flex-shrink:0}
-
-/* Live Badge */
-#live-badge{
-  position:absolute;top:12px;left:14px;z-index:50;
-  display:none;align-items:center;gap:6px;
-  padding:5px 11px;background:rgba(229,24,26,0.92);
-  border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.06em;
-  backdrop-filter:blur(8px);
-}
-#live-badge.visible{display:flex}
-.live-dot{width:7px;height:7px;background:#fff;border-radius:50%;animation:pulse 1.4s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-
-/* Embed shimmer */
-#embed-shimmer{
-  position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:14px;background:#000;
-  transition:opacity .3s;
-}
-#embed-shimmer.hidden{opacity:0;pointer-events:none}
-.sh-icon{font-size:36px}
-.sh-text{color:var(--dim);font-size:13px}
-.sh-track{width:160px;height:3px;background:var(--border2);border-radius:99px;overflow:hidden}
-.sh-fill{height:100%;background:var(--red);border-radius:99px;animation:shimload 2s ease-in-out infinite}
-@keyframes shimload{0%{width:0}60%{width:90%}100%{width:100%}}
-
-/* Embed error */
-#embed-err{
-  position:absolute;inset:0;z-index:20;display:none;flex-direction:column;
-  align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.85);
-  padding:24px;text-align:center;
-}
-#embed-err.visible{display:flex}
-.ee-icon{font-size:42px}
-.ee-title{font-size:18px;font-weight:700}
-.ee-msg{color:var(--dim);font-size:13px;max-width:320px;line-height:1.5}
-.ee-acts{display:flex;gap:8px;margin-top:8px}
-.ee-btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .18s}
-.ee-btn.primary{background:var(--red);color:#fff}
-.ee-btn.primary:hover{background:var(--red-hover)}
-.ee-btn.sec{background:var(--surface2);color:var(--dim);border:1px solid var(--border2)}
-.ee-btn.sec:hover{color:var(--text)}
-
-/* Loading overlay */
-#loading{
-  position:absolute;inset:0;z-index:40;display:none;
-  flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
-}
-#loading.visible{display:flex}
-.spinner{width:32px;height:32px;border:3px solid var(--border2);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-#load-txt{color:var(--dim);font-size:13px}
-
-/* Switch banner */
-#sw-banner{
-  position:absolute;bottom:60px;left:50%;transform:translateX(-50%);z-index:45;
-  display:none;align-items:center;gap:8px;padding:8px 18px;
-  background:rgba(10,10,10,.85);border:1px solid var(--border2);
-  border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap;
-  backdrop-filter:blur(10px);
-}
-#sw-banner.visible{display:flex}
-.sw-dot{width:8px;height:8px;background:var(--amber);border-radius:50%;animation:pulse 1s ease-in-out infinite}
-
-/* Error panel */
-#err-panel{
-  position:absolute;inset:0;z-index:35;display:none;
-  flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  background:rgba(0,0,0,.8);padding:28px;text-align:center;
-}
-#err-panel.visible{display:flex}
-#err-icon{font-size:44px}
-#err-title{font-size:18px;font-weight:700}
-#err-msg{color:var(--dim);font-size:13px;max-width:340px;line-height:1.55}
-#err-acts{display:flex;gap:8px;margin-top:6px}
-.ep-btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .18s}
-.ep-btn.primary{background:var(--red);color:#fff}
-.ep-btn.primary:hover{background:var(--red-hover)}
-.ep-btn.sec{background:var(--surface2);color:var(--dim);border:1px solid var(--border2)}
-.ep-btn.sec:hover{color:var(--text)}
-
-/* Playback bar */
-#pb-bar{
-  position:absolute;bottom:0;left:0;right:0;z-index:30;
-  height:48px;display:flex;align-items:center;padding:0 12px;gap:10px;
-  background:linear-gradient(transparent,rgba(0,0,0,.75));
-  opacity:0;transition:opacity .25s;pointer-events:none;
-}
-#stage:hover #pb-bar,#pb-bar:focus-within{opacity:1;pointer-events:all}
-#pb-mute{background:none;border:none;cursor:pointer;color:#fff;padding:4px;line-height:1;font-size:18px}
-#pb-vol{width:70px;accent-color:var(--red);cursor:pointer}
-#pb-spacer{flex:1}
-#pb-quality{background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer}
-
-/* Toast */
-#toast{
-  position:absolute;bottom:68px;left:50%;transform:translateX(-50%) translateY(8px);
-  z-index:60;padding:8px 18px;background:rgba(20,20,20,.92);
-  border:1px solid var(--border2);border-radius:99px;
-  font-size:12px;font-weight:600;white-space:nowrap;
-  backdrop-filter:blur(12px);opacity:0;pointer-events:none;
-  transition:opacity .2s,transform .2s;
-}
-#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-
-/* Gesture hint */
-#g-hint{
-  position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;
-  pointer-events:none;opacity:0;transition:opacity .2s;
-}
-#g-hint.show{opacity:1}
-.gh-inner{padding:10px 22px;background:rgba(0,0,0,.65);border-radius:10px;font-size:14px;font-weight:600}
-
-/* Shortcuts overlay */
-#sc-overlay{
-  position:absolute;inset:0;z-index:55;display:none;
-  align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
-}
-#sc-overlay.visible{display:flex}
-.sc-box{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:24px 32px;min-width:280px}
-.sc-box h3{font-size:15px;font-weight:700;margin-bottom:16px}
-.sc-row{display:flex;justify-content:space-between;gap:24px;padding:5px 0;font-size:13px;color:var(--dim);border-bottom:1px solid var(--border)}
-.sc-row:last-child{border-bottom:none}
-.sc-key{font-family:var(--mono);background:var(--surface2);padding:2px 7px;border-radius:5px;font-size:11px;color:var(--text)}
-#sc-close{margin-top:16px;width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer}
-#sc-close:hover{color:var(--text)}
-
-/* Button row */
 #btn-row{
-  display:none;flex-shrink:0;height:50px;background:var(--surface);
-  border-top:1px solid var(--border);padding:0 10px;gap:7px;
-  overflow-x:auto;align-items:center;scrollbar-width:none;z-index:200;
+  display:none;flex-shrink:0;
+  height:50px;background:var(--surface);
+  border-top:1px solid var(--border);
+  padding:0 10px;gap:7px;overflow-x:auto;overflow-y:hidden;
+  align-items:center;scrollbar-width:none;z-index:200
 }
-#btn-row.visible{display:flex}
 #btn-row::-webkit-scrollbar{display:none}
+#btn-row.visible{display:flex}
 #stream-btns{display:flex;gap:6px;align-items:center;flex-shrink:0}
 .s-btn{
-  display:inline-flex;align-items:center;gap:5px;padding:0 13px;height:34px;
+  display:inline-flex;align-items:center;gap:5px;
+  padding:0 13px;height:34px;
   background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
-  color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;
-  transition:all var(--t) var(--ease);flex-shrink:0;
+  color:var(--dim);font-family:var(--font);font-size:12px;font-weight:600;
+  cursor:pointer;white-space:nowrap;flex-shrink:0;
+  transition:all var(--t) var(--ease);-webkit-tap-highlight-color:transparent;user-select:none
 }
-.s-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25)}
-.s-btn.active{background:var(--red-dim);border-color:var(--red);color:var(--text)}
-.row-divider{width:1px;height:24px;background:var(--border);margin:0 2px;flex-shrink:0}
-#row-controls{display:flex;gap:6px;align-items:center;flex-shrink:0}
-.r-btn{
-  padding:0 12px;height:34px;background:var(--surface2);border:1px solid var(--border2);
-  border-radius:8px;color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;
-  transition:all var(--t) var(--ease);white-space:nowrap;
-}
-.r-btn:hover{color:var(--text)}
+.s-btn:hover{background:rgba(255,255,255,0.09);color:var(--text);border-color:rgba(255,255,255,0.2)}
+.s-btn:active{transform:scale(.97)}
+.s-btn.active{background:var(--red-dim);border-color:rgba(229,24,26,.4);color:var(--text)}
+.s-btn .dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.22);flex-shrink:0}
+.s-btn.active .dot{background:var(--red);animation:blink 1.8s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.row-divider{width:1px;height:24px;background:var(--border);flex-shrink:0;margin:0 2px}
+#row-controls{display:flex;gap:5px;align-items:center;flex-shrink:0;margin-left:auto}
 #qual-sel{
-  height:34px;background:var(--surface2);border:1px solid var(--border2);
-  border-radius:8px;color:var(--dim);font-size:12px;padding:0 10px;cursor:pointer;
+  height:34px;padding:0 10px;
+  background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+  color:var(--dim);font-family:var(--font);font-size:12px;font-weight:600;
+  cursor:pointer;outline:none;transition:all var(--t) var(--ease);flex-shrink:0
 }
+#qual-sel:hover,#qual-sel:focus{color:var(--text)}
 #qual-sel.hidden{display:none}
-
-@media(max-width:480px){
-  #auto-btn span{display:none}
-  #auto-btn{padding:6px 10px}
-  .r-btn{padding:0 8px;font-size:11px}
-  .s-btn{padding:0 9px;font-size:11px}
+.r-btn{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:0 12px;height:34px;
+  background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+  color:var(--dim);font-family:var(--font);font-size:12px;font-weight:600;
+  cursor:pointer;white-space:nowrap;flex-shrink:0;
+  transition:all var(--t) var(--ease);-webkit-tap-highlight-color:transparent;user-select:none
 }
+.r-btn:hover{background:rgba(255,255,255,0.09);color:var(--text)}
+.r-btn:active{transform:scale(.97)}
+.r-btn:disabled{opacity:.35;pointer-events:none}
+.r-btn svg{width:13px;height:13px;flex-shrink:0}
+@media(max-width:380px){.r-btn .r-label{display:none}}
+#embed-shimmer{
+  position:absolute;inset:0;z-index:4;
+  background:linear-gradient(110deg,#0c0c0c 25%,#181818 50%,#0c0c0c 75%);
+  background-size:400% 100%;animation:shimmer 1.5s ease infinite;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;gap:14px;
+  transition:opacity .35s
+}
+#embed-shimmer.hidden{opacity:0;pointer-events:none}
+@keyframes shimmer{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+.sh-icon{font-size:30px;opacity:.22}
+.sh-text{color:var(--faint);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.sh-track{width:120px;height:2px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden}
+.sh-fill{height:100%;width:0%;background:var(--red);border-radius:2px;transition:width .5s ease}
+#embed-frame{position:absolute;inset:0;width:100%;height:100%;border:none;background:#000;z-index:3;opacity:0;transition:opacity .45s}
+#embed-frame.visible{opacity:1}
+#embed-err{
+  position:absolute;inset:0;z-index:6;background:rgba(0,0,0,.88);backdrop-filter:blur(10px);
+  display:none;flex-direction:column;justify-content:center;align-items:center;gap:14px;padding:32px
+}
+#embed-err.active{display:flex}
+.ee-icon{font-size:38px}
+.ee-title{color:var(--text);font-size:15px;font-weight:700;text-align:center}
+.ee-msg{color:var(--dim);font-size:13px;text-align:center;max-width:310px;line-height:1.65}
+.ee-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+.ee-btn{padding:9px 22px;border-radius:8px;border:none;cursor:pointer;font-family:var(--font);font-size:12px;font-weight:700;letter-spacing:.04em;transition:all var(--t) var(--ease);user-select:none}
+.ee-btn.primary{background:var(--red);color:#fff}
+.ee-btn.primary:hover{background:var(--red-hover);transform:translateY(-1px)}
+.ee-btn.sec{background:rgba(255,255,255,.09);color:var(--text);border:1px solid var(--border2)}
+.ee-btn.sec:hover{background:rgba(255,255,255,.15)}
+#loading{position:absolute;inset:0;z-index:20;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:none;flex-direction:column;justify-content:center;align-items:center;gap:16px;pointer-events:none}
+#loading.active{display:flex}
+.spinner{width:38px;height:38px;border:2.5px solid rgba(255,255,255,.1);border-top-color:var(--red);border-radius:50%;animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#load-txt{color:var(--dim);font-size:13px;font-weight:500;letter-spacing:.01em}
+#load-prog{width:160px;height:2px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden;display:none}
+#load-prog.on{display:block}
+#load-fill{height:100%;background:var(--red);width:0%;transition:width .4s ease;border-radius:2px}
+#sw-banner{
+  position:absolute;bottom:70px;left:50%;
+  transform:translateX(-50%) translateY(14px);z-index:22;
+  background:var(--surface);border:1px solid var(--border2);border-radius:100px;
+  padding:8px 18px;gap:8px;display:flex;align-items:center;
+  color:var(--dim);font-size:12px;font-weight:600;
+  opacity:0;pointer-events:none;transition:opacity .25s,transform .25s
+}
+#sw-banner.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.sw-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:blink 1s ease-in-out infinite;flex-shrink:0}
+#err-panel{position:absolute;inset:0;z-index:21;background:rgba(0,0,0,.88);backdrop-filter:blur(8px);display:none;flex-direction:column;justify-content:center;align-items:center;padding:28px;pointer-events:none}
+#err-panel.active{display:flex;pointer-events:auto}
+.err-box{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:28px 26px 24px;max-width:420px;width:100%;text-align:center;display:flex;flex-direction:column;gap:10px;position:relative;overflow:hidden}
+.err-ico{font-size:34px}
+.err-ttl{color:var(--text);font-size:16px;font-weight:700}
+.err-msg{color:var(--dim);font-size:13px;line-height:1.65}
+.err-hint{color:var(--dim);font-size:12px;line-height:1.6;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:10px 12px;text-align:left;display:none}
+.err-hint.on{display:block}
+.err-acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px}
+.err-btn{padding:9px 20px;border-radius:8px;border:none;cursor:pointer;font-family:var(--font);font-size:12px;font-weight:700;transition:all var(--t) var(--ease);user-select:none}
+.err-btn.retry{background:var(--red);color:#fff}
+.err-btn.retry:hover{background:var(--red-hover);transform:translateY(-1px)}
+.err-btn.retry:disabled{opacity:.4;transform:none;pointer-events:none}
+.err-btn.sec{background:rgba(255,255,255,.08);color:var(--text);border:1px solid var(--border2)}
+.err-btn.sec:hover{background:rgba(255,255,255,.14)}
+.err-retries{color:var(--faint);font-size:11px}
+#fb-countdown{height:2px;background:var(--red);width:100%;transform-origin:left;transform:scaleX(0);transition:none;border-radius:0 0 14px 14px;position:absolute;bottom:0;left:0}
+#fb-countdown.running{transform:scaleX(1);transition:transform 5s linear}
+.fb-wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:20px;padding:24px;background:var(--bg)}
+.fb-wrap p{color:var(--dim);font-size:13px;text-align:center}
+.fb-wrap .fb-ttl{color:var(--red);font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.fb-wrap iframe{width:100%;max-width:820px;height:min(420px,60vh);border-radius:var(--r);border:1px solid var(--border2);box-shadow:0 20px 60px rgba(0,0,0,.8)}
+#live-badge{position:absolute;top:13px;left:14px;z-index:10;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.52);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(12px);padding:5px 12px 5px 8px;border-radius:100px;opacity:0;transition:opacity var(--t) var(--ease);pointer-events:none}
+#live-badge.on{opacity:1}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1.6s ease-in-out infinite;flex-shrink:0}
+#live-lbl{color:#fff;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+#toast{position:absolute;bottom:68px;left:50%;transform:translateX(-50%) translateY(14px);z-index:30;background:rgba(18,18,18,.94);border:1px solid var(--border2);backdrop-filter:blur(12px);color:var(--text);font-size:12px;font-weight:600;padding:8px 18px;border-radius:100px;white-space:nowrap;opacity:0;transition:opacity .22s,transform .22s;pointer-events:none}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#g-hint{position:absolute;bottom:54px;left:50%;transform:translateX(-50%);z-index:12;background:rgba(0,0,0,.55);border:1px solid var(--border);backdrop-filter:blur(12px);color:var(--dim);font-size:11px;font-weight:600;padding:7px 16px;border-radius:100px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#g-hint.show{opacity:1}
+#init-ph{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;background:#000;z-index:5}
+#init-ph p{color:var(--faint);font-size:14px;letter-spacing:.04em}
+#sc-overlay{position:absolute;inset:0;z-index:25;background:rgba(0,0,0,.92);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;padding:24px}
+#sc-overlay.active{display:flex}
+.sc-box{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:26px;max-width:500px;width:100%}
+.sc-ttl{color:var(--text);font-size:15px;font-weight:700;text-align:center;margin-bottom:18px}
+.sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.sc-item{display:flex;align-items:center;gap:9px;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px}
+.sc-key{background:var(--red);color:#fff;padding:3px 9px;border-radius:4px;font-family:var(--mono);font-size:10px;font-weight:700;flex-shrink:0}
+.sc-desc{color:var(--dim);font-size:12px}
+.sc-close{width:100%;margin-top:18px;padding:10px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:700;transition:background var(--t)}
+.sc-close:hover{background:var(--red-hover)}
+#pb-bar{position:absolute;bottom:0;left:0;right:0;z-index:15;background:linear-gradient(to top,rgba(0,0,0,.75) 0%,transparent 100%);padding:36px 16px 14px;opacity:0;transition:opacity var(--t) var(--ease);pointer-events:none;display:none}
+#stage.has-ov #pb-bar{display:block}
+#stage.has-ov #pb-bar.on{opacity:1;pointer-events:auto}
+.pb-row{display:flex;align-items:center;gap:10px}
+.pb-lbl{color:var(--dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.pb-vol{width:80px;height:4px;background:rgba(255,255,255,.18);border-radius:2px;cursor:pointer;-webkit-appearance:none;appearance:none}
+.pb-vol::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;background:var(--red);border-radius:50%;cursor:pointer}
+.pb-vol::-moz-range-thumb{width:12px;height:12px;background:var(--red);border-radius:50%;cursor:pointer;border:none}
+.pb-fs{margin-left:auto;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);border:1px solid var(--border2);border-radius:6px;cursor:pointer;color:var(--text);transition:background var(--t)}
+.pb-fs:hover{background:rgba(255,255,255,.16)}
+.pb-fs svg{width:14px;height:14px}
+@media(max-width:600px){
+  #btn-row{height:46px;padding:0 8px;gap:5px}
+  .s-btn{padding:0 10px;height:32px;font-size:11px}
+  .r-btn{padding:0 9px;height:32px;font-size:11px}
+  #qual-sel{font-size:11px;height:32px;padding:0 8px}
+  .sc-grid{grid-template-columns:1fr}
+}
+@media(max-width:360px){.s-btn .s-icon{display:none}.row-divider{display:none}}
 </style>
 </head>
 <body>
 <div id="app">
   <div id="stage">
-    <button id="auto-btn" title="Auto switch to best working stream">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.058 11H1M12 3v2m0 16v2m9-9H15"/>
-        <path d="M4.938 14.5A8 8 0 0012 21"/>
-      </svg>
-      <span>Auto</span>
-    </button>
-
-    <div id="init-ph">
-      <div class="spinner"></div>
-      <p>Initializing…</p>
-    </div>
-
+    <div id="init-ph"><p>Initializing…</p></div>
     <div id="player-host"></div>
-
     <div id="embed-host">
       <div id="embed-shimmer">
         <span class="sh-icon">📡</span>
@@ -257,48 +221,62 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
       <div id="embed-err">
         <div class="ee-icon" id="ee-icon">📡</div>
         <div class="ee-title" id="ee-title">Stream not working</div>
-        <div class="ee-msg" id="ee-msg">We couldn't load this stream.</div>
+        <div class="ee-msg" id="ee-msg">We couldn't load this stream. It may be offline or blocked.</div>
         <div class="ee-acts">
           <button type="button" class="ee-btn primary" id="ee-retry-btn">↺ Try Again</button>
-          <button type="button" class="ee-btn sec" id="ee-next">Next Source</button>
+          <button type="button" class="ee-btn sec" id="ee-next" style="display:none">Next Source</button>
+          <button type="button" class="ee-btn sec" id="ee-fallback" style="display:none">Use Backup</button>
         </div>
       </div>
     </div>
-
     <div id="live-badge"><span class="live-dot"></span><span id="live-lbl">LIVE</span></div>
-    <div id="loading"><div class="spinner"></div><div id="load-txt">Loading stream…</div></div>
-    <div id="sw-banner"><span class="sw-dot"></span><span id="sw-txt">Switching stream…</span></div>
-
+    <div id="loading">
+      <div class="spinner"></div>
+      <div id="load-txt">Loading stream…</div>
+      <div id="load-prog"><div id="load-fill"></div></div>
+    </div>
+    <div id="sw-banner"><span class="sw-dot"></span><span id="sw-txt">Switching to backup…</span></div>
     <div id="err-panel">
-      <div id="err-icon">⚠️</div>
-      <div id="err-title">Stream Error</div>
-      <div id="err-msg">Unable to load this stream.</div>
-      <div id="err-acts">
-        <button type="button" class="ep-btn primary" id="ep-retry">↺ Retry</button>
-        <button type="button" class="ep-btn sec" id="ep-next">Next Source</button>
+      <div class="err-box">
+        <div id="fb-countdown"></div>
+        <div class="err-ico" id="err-ico">⚠️</div>
+        <div class="err-ttl" id="err-ttl">Stream not working</div>
+        <div class="err-msg" id="err-msg">Something went wrong loading this stream.</div>
+        <div class="err-hint" id="err-hint"></div>
+        <div class="err-acts">
+          <button type="button" class="err-btn retry" id="btn-retry">↺ Try Again</button>
+          <button type="button" class="err-btn sec" id="btn-fallback">Use Backup</button>
+        </div>
+        <div class="err-retries" id="err-retries"></div>
       </div>
     </div>
-
     <div id="pb-bar">
-      <button id="pb-mute" title="Mute/Unmute">🔊</button>
-      <input id="pb-vol" type="range" min="0" max="100" value="100" title="Volume">
-      <span id="pb-spacer"></span>
-      <select id="pb-quality" title="Quality"></select>
+      <div class="pb-row">
+        <span class="pb-lbl">Vol</span>
+        <input type="range" id="vol-sl" class="pb-vol" min="0" max="100" value="100">
+        <button type="button" class="pb-fs" id="pb-fs-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+        </button>
+      </div>
     </div>
-
-    <div id="g-hint"><div class="gh-inner" id="g-hint-text"></div></div>
+    <div id="g-hint"></div>
     <div id="toast"></div>
-
     <div id="sc-overlay">
       <div class="sc-box">
-        <h3>⌨️ Keyboard Shortcuts</h3>
-        <div class="sc-row"><span>Next stream</span><span class="sc-key">N</span></div>
-        <div class="sc-row"><span>Auto switch</span><span class="sc-key">A</span></div>
-        <div class="sc-row"><span>Mute / Unmute</span><span class="sc-key">M</span></div>
-        <div class="sc-row"><span>Fullscreen</span><span class="sc-key">F</span></div>
-        <div class="sc-row"><span>Refresh stream</span><span class="sc-key">R</span></div>
-        <div class="sc-row"><span>This help</span><span class="sc-key">?</span></div>
-        <button id="sc-close">Close</button>
+        <div class="sc-ttl">⌨ Keyboard Shortcuts</div>
+        <div class="sc-grid">
+          <div class="sc-item"><span class="sc-key">S</span><span class="sc-desc">Switch stream</span></div>
+          <div class="sc-item"><span class="sc-key">R</span><span class="sc-desc">Refresh</span></div>
+          <div class="sc-item"><span class="sc-key">F</span><span class="sc-desc">Fullscreen</span></div>
+          <div class="sc-item"><span class="sc-key">P</span><span class="sc-desc">Picture-in-Picture</span></div>
+          <div class="sc-item"><span class="sc-key">V</span><span class="sc-desc">Mute / Unmute</span></div>
+          <div class="sc-item"><span class="sc-key">?</span><span class="sc-desc">Shortcuts help</span></div>
+          <div class="sc-item"><span class="sc-key">↑ ↓</span><span class="sc-desc">Volume</span></div>
+          <div class="sc-item"><span class="sc-key">Swipe ←</span><span class="sc-desc">Next stream</span></div>
+        </div>
+        <button type="button" class="sc-close" id="sc-close-btn">Close</button>
       </div>
     </div>
   </div>
@@ -307,529 +285,1024 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
     <div id="stream-btns"></div>
     <div class="row-divider"></div>
     <div id="row-controls">
-      <select id="qual-sel" class="hidden"><option value="-1">Auto</option></select>
-      <button type="button" class="r-btn" id="btn-refresh">↺ Refresh</button>
-      <button type="button" class="r-btn" id="btn-fullscreen">⛶ Full</button>
-      <button type="button" class="r-btn" id="btn-pip">PiP</button>
-      <button type="button" class="r-btn" id="btn-help">?</button>
+      <select id="qual-sel" class="hidden" title="Quality">
+        <option value="-1">Auto</option>
+      </select>
+      <button type="button" class="r-btn" id="btn-refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        <span class="r-label">Refresh</span>
+      </button>
+      <button type="button" class="r-btn" id="btn-fullscreen" title="Fullscreen (F)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+        </svg>
+        <span class="r-label">Full</span>
+      </button>
+      <button type="button" class="r-btn" id="btn-pip" title="PiP (P)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2"/><rect x="13" y="11" width="9" height="8" rx="1"/>
+        </svg>
+        <span class="r-label">PiP</span>
+      </button>
+      <button type="button" class="r-btn" id="btn-help" title="Help (?)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </button>
     </div>
   </div>
 </div>
 
 <script>
-const SP = (() => {
-  /* ── Config ───────────────────────────────────────────────── */
-  const CFG = {
-    // Add your stream sources here. Each entry:
-    //   type : 'hls' | 'dash' | 'embed'
-    //   url  : stream URL (HLS/DASH) or embed page URL
-    //   name : display name
-    //   icon : emoji or short label
-    streams: [
-      // Examples – replace with real URLs:
-      // { type:'hls',  url:'https://example.com/live/stream.m3u8', name:'HD Stream 1', icon:'📺' },
-      // { type:'dash', url:'https://example.com/live/stream.mpd',  name:'HD Stream 2', icon:'📡' },
-      // { type:'embed',url:'https://example.com/embed/channel',    name:'Embed 1',     icon:'🌐' },
-    ],
-    embedDelay: 5000,    // ms to wait before showing embed-error button
-    autoRetryDelay: 8000,// ms before auto-retrying a failed stream
-    savedKey: 'sp_last_idx',
-  };
+'use strict';
 
-  /* ── GA helper ────────────────────────────────────────────── */
-  const GA = {
-    send(name, params={}) {
-      try { gtag('event', name, params); } catch(_){}
-    }
-  };
+const _ooe=window.onerror;
+window.onerror=function(msg,src,l,c,e){
+  if(['owlCarousel','replaceText','__cmp','googletag'].some(s=>String(msg).includes(s)))return true;
+  if(_ooe)return _ooe.apply(this,arguments);return false;
+};
+window.addEventListener('unhandledrejection',e=>{
+  const m=e?.reason?.message||String(e?.reason||'');
+  if(m.includes('AbortError')||m.includes('play() request'))e.preventDefault();
+});
 
-  /* ── DOM refs ─────────────────────────────────────────────── */
-  const D = {
-    stage:       document.getElementById('stage'),
-    initPh:      document.getElementById('init-ph'),
-    playerHost:  document.getElementById('player-host'),
-    embedHost:   document.getElementById('embed-host'),
-    embedShim:   document.getElementById('embed-shimmer'),
-    embedFrame:  document.getElementById('embed-frame'),
-    embedErr:    document.getElementById('embed-err'),
-    eeIcon:      document.getElementById('ee-icon'),
-    eeTitle:     document.getElementById('ee-title'),
-    eeMsg:       document.getElementById('ee-msg'),
-    eeRetry:     document.getElementById('ee-retry-btn'),
-    eeNext:      document.getElementById('ee-next'),
-    liveBadge:   document.getElementById('live-badge'),
-    loading:     document.getElementById('loading'),
-    loadTxt:     document.getElementById('load-txt'),
-    swBanner:    document.getElementById('sw-banner'),
-    swTxt:       document.getElementById('sw-txt'),
-    errPanel:    document.getElementById('err-panel'),
-    errIcon:     document.getElementById('err-icon'),
-    errTitle:    document.getElementById('err-title'),
-    errMsg:      document.getElementById('err-msg'),
-    epRetry:     document.getElementById('ep-retry'),
-    epNext:      document.getElementById('ep-next'),
-    pbBar:       document.getElementById('pb-bar'),
-    pbMute:      document.getElementById('pb-mute'),
-    pbVol:       document.getElementById('pb-vol'),
-    pbQuality:   document.getElementById('pb-quality'),
-    gHint:       document.getElementById('g-hint'),
-    gHintText:   document.getElementById('g-hint-text'),
-    toast:       document.getElementById('toast'),
-    scOverlay:   document.getElementById('sc-overlay'),
-    scClose:     document.getElementById('sc-close'),
-    autoBtnEl:   document.getElementById('auto-btn'),
-    btnRow:      document.getElementById('btn-row'),
-    streamBtns:  document.getElementById('stream-btns'),
-    qualSel:     document.getElementById('qual-sel'),
-    btnRefresh:  document.getElementById('btn-refresh'),
-    btnFull:     document.getElementById('btn-fullscreen'),
-    btnPip:      document.getElementById('btn-pip'),
-    btnHelp:     document.getElementById('btn-help'),
-  };
+const SP=(()=>{
+/* ══════════════════════════════════════════════════════
+ * Config
+ * ══════════════════════════════════════════════════════ */
+const CFG={
+  FALLBACK_URL:'',
+  STORAGE_KEY:'sp_idx',CACHE_PREFIX:'sp_c_',CACHE_TTL:5*60*1000,
+  PLAYER_TO:14000,MAX_RETRY:2,CTRL_FADE:3000,GESTURE_T:60,
+  EMBED_TO:15000,EMBED_HTO:8000,EMBED_DEAD_PX:50,
+  AUTO_NEXT_DELAY:5000,   // ms before auto-switching to next stream on error
+  SANDBOX:'allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads',
+  PROXY:[
+    u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u=>`https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+  ],
+  PSCORE:[0,0,0],
+  PROXY_NAMES:['corsproxy.io','codetabs.com','allorigins.win'],
+  SELF_CTRL:new Set(['jwplayer','embed']),
+  LABELS:[
+    {name:'HD 1',icon:'📺'},{name:'Full HD',icon:'🎯'},{name:'Backup',icon:'🔄'},
+    {name:'Alt',icon:'🌐'},{name:'SD',icon:'📡'},{name:'Mirror',icon:'🔁'},
+  ],
+};
+const lbl=i=>i<CFG.LABELS.length?CFG.LABELS[i]:{name:`Stream ${i+1}`,icon:'📺'};
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
-  /* ── State ────────────────────────────────────────────────── */
-  let streams    = [];
-  let curIdx     = 0;
-  let jwInstance = null;
-  let muted      = false;
-  let volume     = 100;
-  let embedTimer = null;
-  let retryTimer = null;
-  let toastTimer = null;
-  let hintTimer  = null;
+/* ══════════════════════════════════════════════════════
+ * GA4 Analytics Module
+ * ══════════════════════════════════════════════════════ */
+const GA=(()=>{
+  const TID='G-Y5EVJ9NQ5B';
+  const _t0=Date.now();
+  let _visibleMs=0,_lastVisibleAt=Date.now(),_hidden=false;
+  let _firstPlayAt=null;
+  const MILESTONES=[30,60,180,300,600,1800];
+  let _milestonesSent=new Set();
+  let _milestoneTimer=null;
+  let _volTimer=null,_lastVol=-1;
+  let _bufferStart=null;
 
-  /* ── Utilities ────────────────────────────────────────────── */
-  const isIOS = () =>
-    /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-  function safe(fn, fallback=null) {
-    try { return fn(); } catch(e) { console.warn(e); return fallback; }
+  function _volBucket(v){
+    if(v===0)return'muted';
+    if(v<=25)return'1-25';
+    if(v<=50)return'26-50';
+    if(v<=75)return'51-75';
+    return'76-100';
   }
-
-  function show(el) { el && el.classList.add('visible'); }
-  function hide(el) { el && el.classList.remove('visible'); }
-
-  function toast(msg, dur=2400) {
-    D.toast.textContent = msg;
-    D.toast.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => D.toast.classList.remove('show'), dur);
+  function _sessionSec(){return Math.round((Date.now()-_t0)/1000);}
+  function _visibleSec(){
+    const now=Date.now();
+    const extra=_hidden?0:now-_lastVisibleAt;
+    return Math.round((_visibleMs+extra)/1000);
   }
-
-  function hint(msg, dur=900) {
-    D.gHintText.textContent = msg;
-    D.gHint.classList.add('show');
-    clearTimeout(hintTimer);
-    hintTimer = setTimeout(() => D.gHint.classList.remove('show'), dur);
+  function _device(){
+    const ua=navigator.userAgent;
+    if(/tablet|ipad/i.test(ua))return'tablet';
+    if(/mobile|android|iphone/i.test(ua))return'mobile';
+    return'desktop';
   }
-
-  function showLoading(msg='Loading stream…') {
-    D.loadTxt.textContent = msg;
-    show(D.loading);
+  function _conn(){
+    const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+    if(!c)return'unknown';
+    return c.effectiveType||c.type||'unknown';
   }
-  function hideLoading() { hide(D.loading); }
-
-  function showErr(icon='⚠️', title='Stream Error', msg='Unable to load this stream.') {
-    D.errIcon.textContent = icon;
-    D.errTitle.textContent = title;
-    D.errMsg.textContent   = msg;
-    show(D.errPanel);
-    hide(D.loading);
-    hide(D.liveBadge);
-  }
-  function hideErr() { hide(D.errPanel); }
-
-  function showSwBanner(msg='Switching stream…') {
-    D.swTxt.textContent = msg;
-    show(D.swBanner);
-    setTimeout(() => hide(D.swBanner), 2500);
-  }
-
-  /* ── Device-aware stream ordering ────────────────────────── */
-  function reorderStreamsForDevice(list) {
-    if (!list.length) return [];
-    if (isIOS()) {
-      return [
-        ...list.filter(s => s.type === 'hls'),
-        ...list.filter(s => s.type === 'embed'),
-        ...list.filter(s => s.type !== 'hls' && s.type !== 'embed'),
-      ];
-    }
-    return [
-      ...list.filter(s => s.type === 'dash'),
-      ...list.filter(s => s.type === 'hls'),
-      ...list.filter(s => s.type === 'embed'),
-      ...list.filter(s => !['dash','hls','embed'].includes(s.type)),
-    ];
-  }
-
-  function getNextPreferredIndex(current) {
-    if (!streams.length) return 0;
-    let next = (current + 1) % streams.length;
-    if (isIOS()) {
-      for (let i = 0; i < streams.length; i++) {
-        const s = streams[next];
-        if (s && (s.type === 'hls' || s.type === 'embed')) return next;
-        next = (next + 1) % streams.length;
-      }
-    }
-    return next;
-  }
-
-  /* ── Stream label helper ──────────────────────────────────── */
-  function lbl(idx) {
-    const s = streams[idx];
-    if (!s) return { name: 'Stream', icon: '📡' };
-    return { name: s.name || `Stream ${idx+1}`, icon: s.icon || '📡' };
-  }
-
-  /* ── Load streams (extend CFG.streams for dynamic fetch) ──── */
-  async function loadStreams() {
-    // Static list from config. To fetch dynamically, replace with:
-    //   const res = await fetch('/api/streams'); return reorderStreamsForDevice(await res.json());
-    const raw = CFG.streams.length ? CFG.streams : getDemoStreams();
-    return reorderStreamsForDevice(raw);
-  }
-
-  // Demo streams so the player renders something out-of-the-box
-  function getDemoStreams() {
-    return [
-      {
-        type: 'hls',
-        url:  'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-        name: 'Demo HLS',
-        icon: '📺',
-      },
-      {
-        type:  'embed',
-        url:   'https://www.youtube.com/embed/live_stream?channel=UC295-Dw0tDd6es7TB_2EV-A&autoplay=1',
-        name:  'Demo Embed',
-        icon:  '🌐',
-      },
-    ];
-  }
-
-  /* ── Build stream buttons ─────────────────────────────────── */
-  function buildBtns(list) {
-    D.streamBtns.innerHTML = '';
-    list.forEach((s, i) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 's-btn' + (i === curIdx ? ' active' : '');
-      btn.dataset.idx = i;
-      btn.innerHTML = `<span>${s.icon||'📡'}</span><span>${s.name||'Stream '+(i+1)}</span>`;
-      btn.addEventListener('click', () => {
-        if (i === curIdx) { refreshStream(); return; }
-        GA.send('stream_btn_click', { index: i+1, name: s.name });
-        go(i);
-      });
-      D.streamBtns.appendChild(btn);
-    });
-    D.btnRow.classList.add('visible');
-    updateBtnHighlight();
-  }
-
-  function updateBtnHighlight() {
-    D.streamBtns.querySelectorAll('.s-btn').forEach((b, i) => {
-      b.classList.toggle('active', i === curIdx);
-    });
-    safe(() => localStorage.setItem(CFG.savedKey, curIdx));
-  }
-
-  /* ── JW Player ────────────────────────────────────────────── */
-  function destroyJW() {
-    if (jwInstance) {
-      safe(() => jwInstance.remove());
-      jwInstance = null;
-    }
-    D.playerHost.innerHTML = '';
-    D.playerHost.style.display = 'none';
-  }
-
-  function playJW(url, type) {
-    destroyJW();
-    hideEmbedHost();
-
-    D.playerHost.style.display = 'block';
-    showLoading();
-    hideErr();
-
-    const container = document.createElement('div');
-    D.playerHost.appendChild(container);
-
-    try {
-      jwInstance = jwplayer(container).setup({
-        file: url,
-        type: type === 'hls' ? 'hls' : 'dash',
-        width:  '100%',
-        height: '100%',
-        autostart: true,
-        mute: muted,
-        volume: volume,
-        controls: false,   // we use our own bar
-        primary: type === 'hls' ? 'html5' : 'html5',
-        hlshtml: true,
-        stretching: 'uniform',
-      });
-
-      jwInstance.on('ready', () => {
-        hideLoading();
-        hideErr();
-        show(D.liveBadge);
-      });
-
-      jwInstance.on('play', () => { hideLoading(); hideErr(); });
-
-      jwInstance.on('error', (e) => {
-        console.warn('JW error', e);
-        GA.send('stream_error', { index: curIdx+1, type, code: e.code });
-        handleStreamError('JW player error: ' + (e.message || 'unknown'));
-      });
-
-      jwInstance.on('levels', (e) => buildQualityMenu(e.levels));
-      jwInstance.on('levelsChanged', (e) => syncQualityMenu(e.currentLevel));
-
-      // Volume sync
-      D.pbVol.value = volume;
-      D.pbMute.textContent = muted ? '🔇' : '🔊';
-
-    } catch(err) {
-      console.error('JW setup failed', err);
-      handleStreamError('Player setup failed');
-    }
-  }
-
-  /* ── Quality menu ─────────────────────────────────────────── */
-  function buildQualityMenu(levels) {
-    [D.qualSel, D.pbQuality].forEach(sel => {
-      sel.innerHTML = '<option value="-1">Auto</option>';
-      levels.forEach((l, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = l.label || (l.height ? l.height+'p' : 'Level '+i);
-        sel.appendChild(opt);
-      });
-      sel.classList.remove('hidden');
-    });
-  }
-
-  function syncQualityMenu(idx) {
-    [D.qualSel, D.pbQuality].forEach(sel => { sel.value = idx; });
-  }
-
-  function setQuality(idx) {
-    if (jwInstance) safe(() => jwInstance.setCurrentQuality(idx));
-  }
-
-  /* ── Embed (iframe) player ────────────────────────────────── */
-  function hideEmbedHost() {
-    D.embedHost.classList.remove('active');
-    D.embedFrame.classList.remove('ready');
-    D.embedFrame.src = 'about:blank';
-    D.embedShim.classList.remove('hidden');
-    hide(D.embedErr);
-    clearTimeout(embedTimer);
-  }
-
-  function playEmbed(url) {
-    destroyJW();
-    hideEmbedHost();
-
-    D.embedHost.classList.add('active');
-    showLoading('Connecting…');
-    hideErr();
-    hide(D.liveBadge);
-
-    D.embedFrame.src = url;
-    D.embedFrame.onload = () => {
-      D.embedFrame.classList.add('ready');
-      D.embedShim.classList.add('hidden');
-      hideLoading();
-      show(D.liveBadge);
-      // Hide shimmer-based error button after load
+  function _dims(){
+    return{
+      stream_index:typeof curIdx!=='undefined'?curIdx+1:0,
+      stream_name:typeof curIdx!=='undefined'?lbl(curIdx).name:'none',
+      adapter_name:typeof curAdapter!=='undefined'?curAdapter||'none':'none',
+      stream_type:typeof curStream!=='undefined'&&curStream?curStream.type||'unknown':'none',
+      app_state:typeof appState!=='undefined'?appState:'idle',
+      session_sec:_sessionSec(),
+      visible_sec:_visibleSec(),
+      device_type:_device(),
+      is_ios:isIOS()?'yes':'no',
+      connection:_conn(),
     };
-
-    // Show "next source" fallback after delay
-    clearTimeout(embedTimer);
-    embedTimer = setTimeout(() => {
-      if (!D.embedFrame.classList.contains('ready')) {
-        D.eeMsg.textContent = "If the stream isn't showing, try another source.";
-        show(D.embedErr);
-        D.embedShim.classList.add('hidden');
-        hideLoading();
-      }
-    }, CFG.embedDelay);
   }
-
-  /* ── Core navigation ──────────────────────────────────────── */
-  function go(idx) {
-    if (!streams.length) { showErr('📭','No Streams','No streams have been configured.'); return; }
-    idx = ((idx % streams.length) + streams.length) % streams.length;
-    curIdx = idx;
-    updateBtnHighlight();
-
-    const s = streams[idx];
-    GA.send('stream_play', { index: idx+1, name: s.name, type: s.type });
-
-    D.initPh.style.display = 'none';
-    hide(D.errPanel);
-    hide(D.liveBadge);
-
-    clearTimeout(retryTimer);
-
-    if (s.type === 'embed') {
-      playEmbed(s.url);
-    } else {
-      playJW(s.url, s.type);
-    }
+  function send(eventName,extra={}){
+    try{gtag('event',eventName,{..._dims(),...extra});}catch(e){console.warn('[GA]',eventName,e);}
   }
-
-  function switchNext(trigger='button', forcedNext=null) {
-    if (!streams.length) return;
-    const nextIdx = forcedNext !== null ? forcedNext : getNextPreferredIndex(curIdx);
-    GA.send('stream_switch', { trigger, from: curIdx+1, to: nextIdx+1 });
-    showSwBanner(`Switching to ${lbl(nextIdx).icon} ${lbl(nextIdx).name}…`);
-    go(nextIdx);
-  }
-
-  function autoSwitchToBestStream() {
-    if (!streams.length) { toast('No streams available'); return; }
-    if (streams.length === 1) { toast('Only one stream — refreshing…'); refreshStream(); return; }
-    const nextIdx = getNextPreferredIndex(curIdx);
-    GA.send('auto_switch_clicked', { from: curIdx+1, to: nextIdx+1 });
-    switchNext('auto_button', nextIdx);
-    toast(`${lbl(nextIdx).icon} ${lbl(nextIdx).name}`);
-  }
-
-  function refreshStream() {
-    GA.send('stream_refresh', { index: curIdx+1 });
-    toast('↺ Refreshing…');
-    go(curIdx);
-  }
-
-  /* ── Error handling ───────────────────────────────────────── */
-  function handleStreamError(detail='') {
-    hideLoading();
-    const s = streams[curIdx];
-    showErr('⚠️', 'Stream Error', `Could not play "${s?.name||'stream'}". ${detail}`);
-    // Auto-retry after delay
-    clearTimeout(retryTimer);
-    retryTimer = setTimeout(() => {
-      if (streams.length > 1) {
-        switchNext('auto_retry');
-      } else {
-        refreshStream();
-      }
-    }, CFG.autoRetryDelay);
-  }
-
-  /* ── Volume & Mute ────────────────────────────────────────── */
-  function setVolume(v) {
-    volume = Math.max(0, Math.min(100, v));
-    muted = volume === 0;
-    D.pbVol.value = volume;
-    D.pbMute.textContent = muted ? '🔇' : '🔊';
-    if (jwInstance) safe(() => { jwInstance.setVolume(volume); jwInstance.setMute(muted); });
-  }
-
-  function toggleMute() {
-    muted = !muted;
-    D.pbMute.textContent = muted ? '🔇' : '🔊';
-    if (jwInstance) safe(() => jwInstance.setMute(muted));
-    hint(muted ? '🔇 Muted' : '🔊 Unmuted');
-  }
-
-  /* ── Fullscreen ───────────────────────────────────────────── */
-  function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      D.stage.requestFullscreen && D.stage.requestFullscreen();
-    } else {
-      document.exitFullscreen && document.exitFullscreen();
-    }
-  }
-
-  /* ── Picture-in-Picture ───────────────────────────────────── */
-  async function togglePiP() {
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        // JW doesn't expose its video directly; try to find it
-        const vid = D.playerHost.querySelector('video');
-        if (vid && document.pictureInPictureEnabled) {
-          await vid.requestPictureInPicture();
-        } else {
-          toast('PiP not supported for this stream');
-        }
-      }
-    } catch(e) {
-      toast('PiP unavailable');
-    }
-  }
-
-  /* ── Shortcuts overlay ────────────────────────────────────── */
-  function showShortcuts() { show(D.scOverlay); }
-  function hideShortcuts() { hide(D.scOverlay); }
-
-  /* ── Keyboard shortcuts ───────────────────────────────────── */
-  document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
-    switch(e.key.toLowerCase()) {
-      case 'n': switchNext('keyboard'); break;
-      case 'a': autoSwitchToBestStream(); break;
-      case 'm': toggleMute(); break;
-      case 'f': toggleFullscreen(); break;
-      case 'r': refreshStream(); break;
-      case '?': showShortcuts(); break;
-      case 'escape': hideShortcuts(); break;
-      case 'arrowup':   e.preventDefault(); setVolume(volume+10); hint(`🔊 ${volume}%`); break;
-      case 'arrowdown': e.preventDefault(); setVolume(volume-10); hint(`🔊 ${volume}%`); break;
+  document.addEventListener('visibilitychange',()=>{
+    const now=Date.now();
+    if(document.hidden){
+      _hidden=true;_visibleMs+=now-_lastVisibleAt;
+      send('tab_hidden',{visible_sec_so_far:_visibleSec(),session_sec:_sessionSec()});
+    }else{
+      _hidden=false;_lastVisibleAt=now;
+      send('tab_visible',{session_sec:_sessionSec()});
     }
   });
+  window.addEventListener('beforeunload',()=>{
+    const dur=_sessionSec();
+    const watch=typeof Perf!=='undefined'?Perf.sec():0;
+    send('session_end',{
+      session_sec:dur,visible_sec:_visibleSec(),watch_sec:watch,
+      total_switches:typeof Perf!=='undefined'?Perf.switches:0,
+      total_errors:typeof Perf!=='undefined'?Perf.errors:0,
+      final_stream_index:typeof curIdx!=='undefined'?curIdx+1:0,
+      final_adapter:typeof curAdapter!=='undefined'?curAdapter:'none',
+    });
+    try{navigator.sendBeacon('https://www.google-analytics.com/g/collect',new URLSearchParams({v:'2',tid:TID,cid:'sports803',en:'session_end'}));}catch{}
+  });
+  function _tickMilestone(){
+    if(typeof Perf==='undefined'||!Perf.pStart)return;
+    const sec=Perf.sec();
+    MILESTONES.forEach(m=>{if(!_milestonesSent.has(m)&&sec>=m){_milestonesSent.add(m);send('watch_milestone',{milestone_sec:m,stream_index:curIdx+1,adapter_name:curAdapter});}});
+  }
+  function startMilestones(){clearInterval(_milestoneTimer);_milestonesSent.clear();_milestoneTimer=setInterval(_tickMilestone,1000);}
+  function stopMilestones(){clearInterval(_milestoneTimer);_milestoneTimer=null;}
+  function trackVolume(newVal,trigger='slider'){
+    clearTimeout(_volTimer);
+    _volTimer=setTimeout(()=>{const bucket=_volBucket(newVal);if(bucket===_lastVol)return;_lastVol=bucket;send('volume_changed',{volume_level:newVal,volume_bucket:bucket,trigger_source:trigger});},800);
+  }
+  function attachVideo(v,adapterName){
+    v.addEventListener('play',()=>{
+      if(!_firstPlayAt){_firstPlayAt=Date.now();send('first_play',{time_to_play_ms:_firstPlayAt-_t0,adapter_name:adapterName});}
+      send('video_play',{adapter_name:adapterName,current_time:Math.round(v.currentTime)});
+    });
+    v.addEventListener('pause',()=>{send('video_pause',{adapter_name:adapterName,current_time:Math.round(v.currentTime),duration:Math.round(v.duration)||0});});
+    v.addEventListener('waiting',()=>{_bufferStart=Date.now();send('video_buffering_start',{adapter_name:adapterName,current_time:Math.round(v.currentTime)});});
+    v.addEventListener('playing',()=>{if(_bufferStart){const ms=Date.now()-_bufferStart;send('video_buffering_end',{adapter_name:adapterName,buffer_duration_ms:ms});_bufferStart=null;}});
+    v.addEventListener('stalled',()=>{send('video_stalled',{adapter_name:adapterName,current_time:Math.round(v.currentTime)});});
+    v.addEventListener('ended',()=>{send('video_ended',{adapter_name:adapterName,watch_sec:Perf.sec()});});
+    v.addEventListener('error',()=>{const code=v.error?.code||0;const msg=({1:'ABORTED',2:'NETWORK',3:'DECODE',4:'SRC_NOT_SUPPORTED'})[code]||'UNKNOWN';send('video_native_error',{adapter_name:adapterName,error_code:code,error_type:msg});});
+    v.addEventListener('volumechange',()=>{const vol=Math.round(v.volume*100);trackVolume(v.muted?0:vol,'video_control');});
+  }
+  return{send,trackVolume,attachVideo,startMilestones,stopMilestones,markFirstPlay(){if(!_firstPlayAt)_firstPlayAt=Date.now();}};
+})();
 
-  /* ── Event listeners ──────────────────────────────────────── */
-  D.autoBtnEl.addEventListener('click', autoSwitchToBestStream);
-  D.btnRefresh.addEventListener('click', refreshStream);
-  D.btnFull.addEventListener('click', toggleFullscreen);
-  D.btnPip.addEventListener('click', togglePiP);
-  D.btnHelp.addEventListener('click', showShortcuts);
-  D.scClose.addEventListener('click', hideShortcuts);
-  D.scOverlay.addEventListener('click', e => { if (e.target === D.scOverlay) hideShortcuts(); });
+/* ── DOM refs ────────────────────────────────────────── */
+const D={
+  stage:document.getElementById('stage'),
+  host:document.getElementById('player-host'),
+  embedHost:document.getElementById('embed-host'),
+  embedFrame:document.getElementById('embed-frame'),
+  embedShimmer:document.getElementById('embed-shimmer'),
+  shFill:document.getElementById('sh-fill'),
+  eeOverlay:document.getElementById('embed-err'),
+  eeIcon:document.getElementById('ee-icon'),
+  eeTitle:document.getElementById('ee-title'),
+  eeMsg:document.getElementById('ee-msg'),
+  eeNext:document.getElementById('ee-next'),
+  eeFallback:document.getElementById('ee-fallback'),
+  eeRetryBtn:document.getElementById('ee-retry-btn'),
+  loading:document.getElementById('loading'),
+  loadTxt:document.getElementById('load-txt'),
+  loadProg:document.getElementById('load-prog'),
+  loadFill:document.getElementById('load-fill'),
+  swBanner:document.getElementById('sw-banner'),
+  swTxt:document.getElementById('sw-txt'),
+  errPanel:document.getElementById('err-panel'),
+  errIco:document.getElementById('err-ico'),
+  errTtl:document.getElementById('err-ttl'),
+  errMsg:document.getElementById('err-msg'),
+  errHint:document.getElementById('err-hint'),
+  errRetries:document.getElementById('err-retries'),
+  fbCountdown:document.getElementById('fb-countdown'),
+  btnRetry:document.getElementById('btn-retry'),
+  btnFallback:document.getElementById('btn-fallback'),
+  liveBadge:document.getElementById('live-badge'),
+  liveLbl:document.getElementById('live-lbl'),
+  toast:document.getElementById('toast'),
+  gHint:document.getElementById('g-hint'),
+  pbBar:document.getElementById('pb-bar'),
+  volSl:document.getElementById('vol-sl'),
+  qualSel:document.getElementById('qual-sel'),
+  streamBtns:document.getElementById('stream-btns'),
+  btnRow:document.getElementById('btn-row'),
+  initPh:document.getElementById('init-ph'),
+  scOverlay:document.getElementById('sc-overlay'),
+  scCloseBtn:document.getElementById('sc-close-btn'),
+  btnRefresh:document.getElementById('btn-refresh'),
+  btnFullscreen:document.getElementById('btn-fullscreen'),
+  btnPip:document.getElementById('btn-pip'),
+  btnHelp:document.getElementById('btn-help'),
+  pbFsBtn:document.getElementById('pb-fs-btn'),
+};
 
-  D.epRetry.addEventListener('click', refreshStream);
-  D.epNext.addEventListener('click', () => switchNext('err_panel'));
-  D.eeRetry.addEventListener('click', () => go(curIdx));
-  D.eeNext.addEventListener('click', () => switchNext('embed_err'));
+/* ── State ───────────────────────────────────────────── */
+let appState='idle',playGen=0,retryCount=0;
+let ctrlTimer=null,toastTimer=null,gTimer=null,swTimer=null,autoNextTimer=null;
+let streams=[],curIdx=0,curStream=null,curPlayer=null,instances=[],curAdapter='';
+const Perf={t0:Date.now(),pStart:null,goT:null,switches:0,errors:0,log:[],sec(){return this.pStart?Math.round((Date.now()-this.pStart)/1000):0}};
 
-  D.pbMute.addEventListener('click', toggleMute);
-  D.pbVol.addEventListener('input', () => setVolume(+D.pbVol.value));
+/* ── URL safety ──────────────────────────────────────── */
+function safe(url){
+  if(!url||typeof url!=='string')return false;
+  const t=url.trim();if(t.length<10||t.length>2048)return false;
+  if(/^(javascript|data|blob|vbscript|file):/i.test(t))return false;
+  try{const p=new URL(t);if(!['http:','https:'].includes(p.protocol))return false;
+    if(!p.hostname||p.hostname.length<3)return false;
+    const m=p.hostname.match(/^(\d+)\.(\d+)\./);
+    if(m){const[a,b]=[+m[1],+m[2]];if(a===127||a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168))return false;}
+    return true;}catch{return false;}
+}
 
-  D.qualSel.addEventListener('change', () => setQuality(+D.qualSel.value));
-  D.pbQuality.addEventListener('change', () => setQuality(+D.pbQuality.value));
+/* ── Params ──────────────────────────────────────────── */
+function decodeData(){try{const e=new URLSearchParams(location.search).get('data');if(!e)return null;return JSON.parse(atob(e));}catch{return null;}}
+function getP(name){const d=decodeData();if(d&&d[name])return Array.isArray(d[name])?d[name]:[d[name]];return new URLSearchParams(location.search).getAll(name);}
+const moraP=getP('mora').filter(safe);
+const embedP=getP('embed').filter(safe);
+const drmKP=(new URLSearchParams(location.search).get('drmkey')||'').trim();
+const refP=(new URLSearchParams(location.search).get('referer')||'').trim();
 
-  /* ── Init ─────────────────────────────────────────────────── */
-  (async () => {
-    streams = await loadStreams();
+/* ── Toast / Banner ──────────────────────────────────── */
+function toast(msg,dur=2400){
+  clearTimeout(toastTimer);D.toast.textContent=msg;D.toast.classList.add('show');
+  toastTimer=setTimeout(()=>D.toast.classList.remove('show'),dur);
+}
+function showSwBanner(msg='Switching to backup…'){
+  clearTimeout(swTimer);D.swTxt.textContent=msg;D.swBanner.classList.add('show');
+  swTimer=setTimeout(()=>D.swBanner.classList.remove('show'),3500);
+}
+function hideSwBanner(){clearTimeout(swTimer);D.swBanner.classList.remove('show');}
 
-    if (!streams.length) {
-      D.initPh.style.display = 'none';
-      showErr('📭', 'No Streams Configured', 'Add your stream URLs to CFG.streams in the script.');
-      return;
+/* ── Friendly errors ─────────────────────────────────── */
+function friendly(raw=''){
+  const m=raw.toLowerCase();
+  if(m.includes('timeout')||m.includes('timed out'))      return{ico:'⏱️',ttl:'Stream not working',  msg:'The stream took too long to load.',       hint:'Check your connection or try another source.'};
+  if(m.includes('network')||m.includes('failed to fetch'))return{ico:'📶',ttl:'Connection failed',    msg:'Couldn\'t reach the stream server.',       hint:'You may be offline. Try refreshing in a moment.'};
+  if(m.includes('cors')||m.includes('cross-origin'))      return{ico:'🔒',ttl:'Stream blocked',        msg:'The stream server blocked this request.',   hint:'Try switching to a different source.'};
+  if(m.includes('drm')||m.includes('clearkey'))           return{ico:'🔑',ttl:'Decryption error',      msg:'Couldn\'t decrypt this protected stream.',  hint:'The key may have expired. Try refreshing.'};
+  if(m.includes('not supported')||m.includes('format'))   return{ico:'📺',ttl:'Format not supported',  msg:'Your browser can\'t play this stream.',     hint:'Try Chrome or Firefox for best results.'};
+  if(m.includes('404')||m.includes('not found'))          return{ico:'🔍',ttl:'Stream not found',      msg:'The stream link returned an error.',         hint:'The stream may have ended. Try switching.'};
+  if(m.includes('403')||m.includes('forbidden'))          return{ico:'🚫',ttl:'Access denied',         msg:'Not allowed to access this stream.',         hint:'It may be geo-blocked or require a login.'};
+  if(m.includes('abort'))                                  return{ico:'⚡',ttl:'Playback interrupted', msg:'The stream load was cancelled.',              hint:'Try again or switch to another source.'};
+  return{ico:'⚠️',ttl:'Stream not working',               msg:'An unexpected problem occurred.',        hint:'Try refreshing, or switch to another stream.'};
+}
+
+/* ── Loading ─────────────────────────────────────────── */
+function setLoading(on,txt='Loading stream…',pct){
+  D.loadTxt.textContent=txt;D.loading.classList.toggle('active',on);
+  if(on&&pct!==undefined){D.loadProg.classList.add('on');D.loadFill.style.width=Math.min(100,Math.max(0,pct))+'%';}
+  else if(!on){D.loadProg.classList.remove('on');D.loadFill.style.width='0%';}
+  if(on)appState='loading';
+}
+
+/* ── Smart next-index helper (device-aware) ──────────── */
+function getNextPreferredIndex(current){
+  if(!streams.length)return 0;
+  let next=(current+1)%streams.length;
+  if(isIOS()){
+    let attempts=0;
+    while(attempts<streams.length){
+      const s=streams[next];
+      if(s&&(s.type==='hls'||s.type==='embed'))return next;
+      next=(next+1)%streams.length;
+      attempts++;
     }
+    return(current+1)%streams.length;
+  }
+  return next;
+}
 
-    buildBtns(streams);
+/* ── Auto-switch countdown ───────────────────────────── */
+function startAutoNextSwitch(){
+  clearTimeout(autoNextTimer);
+  D.fbCountdown.classList.remove('running');
+  D.fbCountdown.style.transition='none';
+  D.fbCountdown.style.transform='scaleX(0)';
+  void D.fbCountdown.offsetWidth;
+  D.fbCountdown.style.transition=`transform ${CFG.AUTO_NEXT_DELAY}ms linear`;
+  D.fbCountdown.style.transform='scaleX(1)';
+  GA.send('auto_next_started',{delay_sec:CFG.AUTO_NEXT_DELAY/1000,retry_count:retryCount});
+  autoNextTimer=setTimeout(()=>{
+    if(appState==='error'){
+      if(streams.length>1){
+        GA.send('auto_next_triggered',{trigger:'timeout',retry_count:retryCount});
+        hideError();
+        switchNext('auto_error');
+      }else{
+        GA.send('auto_fallback_triggered',{trigger:'timeout',retry_count:retryCount});
+        hideError();showFallback();
+      }
+    }
+  },CFG.AUTO_NEXT_DELAY);
+}
+function cancelAutoNextSwitch(reason='user'){
+  if(!autoNextTimer)return;
+  clearTimeout(autoNextTimer);autoNextTimer=null;
+  D.fbCountdown.style.transition='none';
+  D.fbCountdown.style.transform='scaleX(0)';
+  GA.send('auto_next_cancelled',{cancel_reason:reason});
+}
 
-    const savedIdx = safe(() => {
-      const v = parseInt(localStorage.getItem(CFG.savedKey), 10);
-      return isFinite(v) && v >= 0 && v < streams.length ? v : 0;
-    }, 0);
+/* ── Error panel ─────────────────────────────────────── */
+function showError(rawErr=''){
+  GA.stopMilestones();
+  clearHost();Perf.errors++;
+  const f=friendly(rawErr);
+  D.errIco.textContent=f.ico;D.errTtl.textContent=f.ttl;D.errMsg.textContent=f.msg;
+  if(f.hint){D.errHint.textContent=f.hint;D.errHint.classList.add('on');}else D.errHint.classList.remove('on');
+  const rem=CFG.MAX_RETRY-retryCount;
+  // Show retry count + auto-switch message (Code 2 style)
+  if(streams.length>1){
+    D.errRetries.textContent=rem>0
+      ?`${rem} attempt${rem!==1?'s':''} remaining — auto-switching in ${CFG.AUTO_NEXT_DELAY/1000}s`
+      :`Auto-switching to next stream in ${CFG.AUTO_NEXT_DELAY/1000}s…`;
+  }else{
+    D.errRetries.textContent=rem>0
+      ?`${rem} attempt${rem!==1?'s':''} remaining — switching to backup in ${CFG.AUTO_NEXT_DELAY/1000}s`
+      :`Switching to backup…`;
+  }
+  D.btnRetry.disabled=rem<=0;
+  D.errPanel.classList.add('active');appState='error';setLoading(false);
+  GA.send('error_shown',{
+    error_title:f.ttl,error_raw:rawErr.slice(0,150),
+    retries_remaining:rem,stream_index:curIdx+1,
+    adapter_name:curAdapter,watch_sec_before_error:Perf.sec(),
+  });
+  startAutoNextSwitch();
+}
+function hideError(){
+  D.errPanel.classList.remove('active');
+  D.errRetries.textContent='';
+  cancelAutoNextSwitch('panel_hidden');
+}
 
-    await go(savedIdx);
-  })();
+/* ── Live badge ──────────────────────────────────────── */
+function setBadge(s){
+  if(!s){D.liveBadge.classList.remove('on');return;}
+  D.liveLbl.textContent=lbl(curIdx).name;D.liveBadge.classList.add('on');
+}
 
-  return { go, switchNext, refresh: refreshStream, autoSwitch: autoSwitchToBestStream };
+/* ── Quality selector ────────────────────────────────── */
+let qualH=null,_curQualLabel='Auto';
+function setQuality(items,handler){
+  const sel=D.qualSel;sel.innerHTML='<option value="-1">Auto</option>';
+  if(!items||!items.length){sel.classList.add('hidden');qualH=null;return;}
+  items.forEach((item,i)=>{const o=document.createElement('option');o.value=i;o.textContent=item.label;sel.appendChild(o);});
+  sel.classList.remove('hidden');
+  qualH=(v)=>{if(items[v])handler(items[v].value??v);else handler(v);};
+  GA.send('quality_levels_available',{levels_count:items.length,adapter_name:curAdapter,levels_list:items.map(i=>i.label).join(',')});
+}
+function hideQuality(){D.qualSel.classList.add('hidden');qualH=null;}
+D.qualSel.addEventListener('change',e=>{
+  const v=parseInt(e.target.value,10);
+  const newLabel=D.qualSel.options[D.qualSel.selectedIndex]?.text||'Auto';
+  if(qualH){
+    GA.send('quality_changed',{from_quality:_curQualLabel,to_quality:newLabel,adapter_name:curAdapter});
+    _curQualLabel=newLabel;qualH(v);toast('Quality changed');
+  }
+});
+
+/* ── Stream buttons ──────────────────────────────────── */
+let btnEls=[];
+function buildBtns(list){
+  D.streamBtns.innerHTML='';btnEls=[];
+  if(!list||!list.length){D.btnRow.classList.remove('visible');return;}
+  list.forEach((s,i)=>{
+    const L=lbl(i),btn=document.createElement('button');
+    btn.type='button';btn.className='s-btn';btn.dataset.i=i;
+    btn.innerHTML=`<span class="dot"></span><span class="s-icon">${L.icon}</span><span>${L.name}</span>`;
+    btn.addEventListener('click',()=>{
+      if(+btn.dataset.i!==curIdx){
+        GA.send('stream_button_clicked',{target_index:i+1,target_name:L.name,from_index:curIdx+1,trigger_source:'button'});
+        SP.go(+btn.dataset.i);
+      }
+    });
+    D.streamBtns.appendChild(btn);btnEls.push(btn);
+  });
+  D.btnRow.classList.add('visible');
+}
+function setActivBtn(i){btnEls.forEach((b,j)=>b.classList.toggle('active',j===i));}
+
+/* ── Overlay controls ────────────────────────────────── */
+function setOverlay(on){
+  if(on)D.stage.classList.add('has-ov');
+  else{D.stage.classList.remove('has-ov');D.pbBar.classList.remove('on');clearTimeout(ctrlTimer);}
+}
+D.stage.addEventListener('mousemove',()=>{
+  if(!D.stage.classList.contains('has-ov'))return;
+  D.pbBar.classList.add('on');clearTimeout(ctrlTimer);
+  if(appState==='playing')ctrlTimer=setTimeout(()=>D.pbBar.classList.remove('on'),CFG.CTRL_FADE);
+});
+D.volSl.addEventListener('input',e=>{
+  const v=Number(e.target.value)/100;
+  if(curPlayer instanceof HTMLMediaElement){curPlayer.volume=v;curPlayer.muted=(v===0);}
+  GA.trackVolume(Math.round(v*100),'slider');
+});
+
+/* ── Player cleanup ──────────────────────────────────── */
+function clearHost(){
+  GA.stopMilestones();
+  EmbedMgr.unmount();
+  instances.forEach(p=>{try{
+    if(typeof p.destroy==='function')p.destroy();
+    else if(typeof p.dispose==='function')p.dispose();
+    else if(p instanceof HTMLMediaElement){p.pause();p.src='';p.load();}
+  }catch(e){console.warn('[Cleanup]',e);}});
+  instances=[];D.host.innerHTML='';D.host.style.display='none';
+  curPlayer=null;setOverlay(false);hideQuality();
+}
+function newVid(a={}){
+  const v=document.createElement('video');
+  v.style.cssText='width:100%;height:100%;display:block;background:#000;';
+  Object.entries({autoplay:false,playsinline:true,...a}).forEach(([k,val])=>{
+    if(val===true)v.setAttribute(k,'');else if(val!==false)v.setAttribute(k,val);
+  });
+  return v;
+}
+async function safePlay(v){try{await v.play();}catch(e){if(e&&(e.name==='AbortError'||e.name==='NotAllowedError'))return;throw e;}}
+
+/* ── Proxy ───────────────────────────────────────────── */
+async function fetchProxied(url){
+  const order=[...CFG.PSCORE.keys()].sort((a,b)=>CFG.PSCORE[b]-CFG.PSCORE[a]);
+  let last;
+  for(const i of order){
+    const pu=CFG.PROXY[i](url),ac=new AbortController();
+    ac._t=setTimeout(()=>ac.abort(),9000);const t0=Date.now();
+    GA.send('proxy_attempt',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,target_url:url.slice(0,80)});
+    try{
+      const r=await fetch(pu,{signal:ac.signal});clearTimeout(ac._t);
+      if(!r.ok)throw new Error(`HTTP ${r.status}`);
+      let t=await r.text();
+      if(pu.includes('allorigins')){try{const j=JSON.parse(t);if(j.contents!==undefined)t=j.contents;}catch{}}
+      CFG.PSCORE[i]=Math.max(CFG.PSCORE[i],1);
+      GA.send('proxy_success',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,response_ms:Date.now()-t0});
+      return t;
+    }catch(e){
+      clearTimeout(ac._t);CFG.PSCORE[i]=Math.max(0,CFG.PSCORE[i]-1);
+      GA.send('proxy_fail',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,error_message:e?.message||'unknown',elapsed_ms:Date.now()-t0});
+      last=e;
+    }
+  }
+  GA.send('proxy_all_failed',{target_url:url.slice(0,80)});
+  throw last||new Error('All proxies failed');
+}
+
+/* ── Cache ───────────────────────────────────────────── */
+function cGet(k){try{const r=sessionStorage.getItem(k);if(!r)return null;const p=JSON.parse(r);if(Date.now()-(p._at||0)>CFG.CACHE_TTL){sessionStorage.removeItem(k);return null;}return p;}catch{return null;}}
+function cSet(k,v){try{sessionStorage.setItem(k,JSON.stringify({...v,_at:Date.now()}));}catch{}}
+function cDel(k){try{sessionStorage.removeItem(k);}catch{}}
+
+/* ── Stream extraction ───────────────────────────────── */
+function extractCK(html){
+  const br=html.match(/clear[Kk]eys\s*[:{][\s\S]{0,2000}?\{([\s\S]{0,1000}?)\}/);
+  if(br){const m=br[1].match(/"([0-9a-fA-F]{32})"\s*:\s*"([0-9a-fA-F]{32})"/);if(m)return{keyId:m[1],key:m[2]};}
+  const re=/"([0-9a-fA-F]{32})"\s*:\s*"([0-9a-fA-F]{32})"/g;let m;
+  while((m=re.exec(html))!==null){const[,k,v]=m;if(k!=='0'.repeat(32)&&v!=='0'.repeat(32))return{keyId:k,key:v};}
+  return null;
+}
+function extractMfst(html){
+  let url=null,drm=null;
+  const VN=['manifestUri','manifest_uri','youtube_theme_manifestUri','manifesturl','manifestURL','streamUrl','streamURL','stream_url','hlsUrl','hlsURL','hls_url','dashUrl','dashURL','dash_url','videoUrl','videoURL','video_url','sourceUrl','sourceURL','source_url','liveUrl','liveURL','live_url','channelUrl','channel_url','streamSrc','stream_src','videoSrc','video_src','mediaSrc','media_src','playbackUrl','playback_url','linkStream','link_stream','urlStream','url_stream','srcStream'];
+  let m;
+  m=html.match(new RegExp('(?:const|var|let)\\s+(?:'+VN.join('|')+')\\s*=\\s*[\'"]([^\'"]+)[\'"]','i'));if(m&&safe(m[1]))url=m[1];
+  if(!url){m=html.match(new RegExp('(?:'+VN.join('|')+')\\s*=\\s*[\'"]([^\'"]+)[\'"]','i'));if(m&&safe(m[1]))url=m[1];}
+  if(!url){m=html.match(/\.(?:load|loadSource|loadManifest)\s*\(\s*[`'"]([^`'"]+)[`'"]/i);if(m&&safe(m[1]))url=m[1];}
+  if(!url){m=html.match(/file\s*:\s*["'`](https?:\/\/[^"'`\s]+\.(?:m3u8|mpd)[^"'`\s]*)/i);if(m&&safe(m[1]))url=m[1];}
+  if(!url){m=html.match(/(?:src|source)\s*[=:]\s*["'`](https?:\/\/[^"'`\s]+\.(?:m3u8|mpd)[^"'`\s]*)/i);if(m&&safe(m[1]))url=m[1];}
+  if(!url){m=html.match(/"(?:file|src|source|url)"\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mpd)[^"]*)"/i);if(m&&safe(m[1]))url=m[1];}
+  if(!url){const b=html.match(/<(?:video|source)[^>]+(?:data-)?src=["']([^"']+\.(?:m3u8|mpd)[^"']*)['"]/i);if(b&&safe(b[1]))url=b[1];}
+  if(!url){const b64=/atob\s*\(\s*["']([A-Za-z0-9+/=]{30,})["']\s*\)/g;let bm;while((bm=b64.exec(html))!==null){try{const d=atob(bm[1]);if(/^https?:\/\//i.test(d)&&safe(d)){url=d;break;}}catch{}}}
+  if(!url){
+    const ir=/<iframe[^>]+src=["']([^"']+)['"]/gi;const embs=[];let em;
+    while((em=ir.exec(html))!==null){const c=em[1].replace(/&amp;/g,'&').trim();if(safe(c)&&!c.includes('blogger.com')&&!c.includes('google.com'))embs.push(c);}
+    if(embs.length)return{streamUrl:embs[0],drm:null,isEmbed:true,embedUrls:embs};
+  }
+  if(!url){m=html.match(/https?:\/\/[^\s"'`<>\\]+\.m3u8[^\s"'`<>\\]*/);if(m)url=m[0];}
+  if(!url){m=html.match(/https?:\/\/[^\s"'`<>\\]+\.mpd[^\s"'`<>\\]*/);if(m)url=m[0];}
+  if(!url){m=html.match(/file\s*:\s*['"](https?:\/\/[^'"]+)['"]/i);if(m&&safe(m[1]))url=m[1];}
+  drm=extractCK(html);
+  if(url&&url.includes('!!')){const[mu,kp]=url.split('!!');url=mu;if(kp&&kp.includes(':')&&!drm){const[ki,k]=kp.split(':');drm={keyId:ki,key:k};}}
+  return url?{streamUrl:url,drm}:null;
+}
+
+async function withR(fn,n=CFG.MAX_RETRY,d=800){for(let i=0;i<=n;i++){try{return await fn();}catch(e){if(i===n)throw e;await new Promise(r=>setTimeout(r,d*Math.pow(2,i)));}}}
+function withTO(p,ms=CFG.PLAYER_TO){let t;const tp=new Promise((_,r)=>{t=setTimeout(()=>r(new Error('Player init timed out')),ms);});return Promise.race([p.finally(()=>clearTimeout(t)),tp]);}
+
+async function resolveStream(url){
+  const ck=CFG.CACHE_PREFIX+url;
+  const c=cGet(ck);
+  if(c){GA.send('stream_cache_hit',{stream_url:url.slice(0,80),stream_type:c.type});return c;}
+  GA.send('stream_resolve_start',{stream_url:url.slice(0,80)});
+  const t0=Date.now();
+  if(url.includes('.mpd!!')){const[mu,kp]=url.split('!!');const r=kp&&kp.includes(':')?{type:'dash',url:mu,drm:{keyId:kp.split(':')[0],key:kp.split(':')[1]}}:{type:'dash',url:mu};cSet(ck,r);return r;}
+  if(/\.m3u8([?&#]|$)/i.test(url)){const r={type:'hls',url};cSet(ck,r);GA.send('stream_resolve_success',{stream_type:'hls',resolve_ms:Date.now()-t0,method:'direct'});return r;}
+  if(/\.mpd([?&#]|$)/i.test(url)){let drm=null;if(drmKP&&drmKP.includes(':')){const sep=drmKP.indexOf(':');drm={keyId:drmKP.slice(0,sep).trim(),key:drmKP.slice(sep+1).trim()};}const r={type:'dash',url,...(drm&&{drm})};cSet(ck,r);GA.send('stream_resolve_success',{stream_type:'dash',has_drm:!!drm,resolve_ms:Date.now()-t0,method:'direct'});return r;}
+  return withR(async()=>{
+    const html=await fetchProxied(url),ex=extractMfst(html);
+    if(!ex){GA.send('stream_resolve_fail',{reason:'no_manifest_found',resolve_ms:Date.now()-t0});throw new Error('No stream URL found');}
+    if(ex.isEmbed){const r={type:'embed',url:ex.streamUrl,embedUrls:ex.embedUrls||[ex.streamUrl]};cSet(ck,r);GA.send('stream_resolve_success',{stream_type:'embed',embed_count:r.embedUrls.length,resolve_ms:Date.now()-t0,method:'scraped'});return r;}
+    let{streamUrl,drm}=ex;
+    if(!safe(streamUrl)){GA.send('stream_resolve_fail',{reason:'unsafe_url',resolve_ms:Date.now()-t0});throw new Error('Unsafe URL');}
+    if(!drm&&drmKP&&drmKP.includes(':')){const sep=drmKP.indexOf(':');drm={keyId:drmKP.slice(0,sep).trim(),key:drmKP.slice(sep+1).trim()};}
+    const type=/\.m3u8([?&#]|$)/i.test(streamUrl)?'hls':'dash';
+    const r={type,url:streamUrl,...(drm&&{drm})};cSet(ck,r);
+    GA.send('stream_resolve_success',{stream_type:type,has_drm:!!drm,resolve_ms:Date.now()-t0,method:'scraped'});
+    return r;
+  });
+}
+
+/* ── Script loader ───────────────────────────────────── */
+const _sc=new Map();
+function loadSc(src){if(_sc.has(src))return _sc.get(src);const p=new Promise((res,rej)=>{if(document.querySelector(`script[src="${src}"]`)){return res();}const s=document.createElement('script');s.src=src;s.async=true;s.onload=res;s.onerror=()=>rej(new Error('Load failed: '+src));document.head.appendChild(s);});_sc.set(src,p);return p;}
+
+/* ══════════════════════════════════════════════════════
+ * EmbedManager
+ * ══════════════════════════════════════════════════════ */
+const EmbedMgr=(()=>{
+  let _s=[],_i=0,_lt=null,_ht=null,_si=null,_g=0,_t0=0,_fr=null;
+  function _startSh(){D.embedShimmer.classList.remove('hidden');D.shFill.style.width='0%';let p=0;_si=setInterval(()=>{const st=p<50?4:p<75?2:p<85?.5:0;p=Math.min(85,p+st);D.shFill.style.width=p+'%';},250);}
+  function _doneSh(ok=true){clearInterval(_si);_si=null;D.shFill.style.width=ok?'100%':'30%';setTimeout(()=>D.embedShimmer.classList.add('hidden'),350);}
+  function _showEE(icon,ttl,msg,canNext,sourcesExhausted=false){
+    D.eeIcon.textContent=icon;D.eeTitle.textContent=ttl;D.eeMsg.textContent=msg;
+    D.eeNext.style.display=(canNext&&_s.length>1)?'':'none';
+    D.eeFallback.style.display=sourcesExhausted?'':'none';
+    D.eeOverlay.classList.add('active');
+  }
+  function _hideEE(){D.eeOverlay.classList.remove('active');}
+  function _allExhausted(){
+    GA.send('embed_exhausted',{source_count:_s.length,attempts:_i+1,embed_url:(_s[0]||'').slice(0,80)});
+    _doneSh(false);EmbedMgr.unmount();showFallback();
+  }
+  function _load(idx,gen){
+    if(typeof gen!=='undefined'&&gen!==_g)return;
+    _i=idx;_hideEE();const url=_s[idx];
+    if(!url){GA.send('embed_no_source',{source_index:idx});_showEE('🔗','No source','This source is missing.',false,true);return;}
+    clearTimeout(_lt);clearTimeout(_ht);_startSh();_t0=Date.now();
+    GA.send('embed_attempt',{source_index:idx,source_count:_s.length,embed_url:url.slice(0,80)});
+    const fr=D.embedFrame.cloneNode(false);fr.id='embed-frame';
+    fr.setAttribute('sandbox',CFG.SANDBOX);
+    fr.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope');
+    fr.setAttribute('referrerpolicy','no-referrer-when-downgrade');
+    D.embedFrame.replaceWith(fr);D.embedFrame=fr;_fr=fr;
+    _wire(gen??_g);fr.classList.remove('visible');fr.src=url;
+    _lt=setTimeout(()=>{
+      if(_i!==idx)return;
+      _doneSh(false);
+      GA.send('embed_timeout',{source_index:idx,embed_url:url.slice(0,80),elapsed_ms:Date.now()-_t0});
+      const hasMore=_s.length>1&&idx<_s.length-1;
+      if(hasMore){
+        _showEE('⏱️','Stream not working','The stream took too long to load.',true,false);
+        setTimeout(()=>{if(_i===idx){showSwBanner();_load(idx+1);}},2000);
+      }else{_allExhausted();}
+    },CFG.EMBED_TO);
+  }
+  function _wire(gen){
+    const fr=_fr;
+    fr.addEventListener('load',function ol(){fr.removeEventListener('load',ol);if(_g!==gen)return;
+      clearTimeout(_lt);_doneSh(true);fr.classList.add('visible');hideSwBanner();
+      GA.send('embed_load_success',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80),load_ms:Date.now()-_t0});
+      Perf.pStart=Date.now();appState='playing';GA.startMilestones();
+      _ht=setTimeout(()=>_hc(gen),CFG.EMBED_HTO);
+    },{once:true});
+    fr.addEventListener('error',function oe(){fr.removeEventListener('error',oe);if(_g!==gen)return;
+      clearTimeout(_lt);_doneSh(false);
+      GA.send('embed_load_fail',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80),elapsed_ms:Date.now()-_t0});
+      const hasMore=_s.length>1&&_i<_s.length-1;
+      if(hasMore){
+        _showEE('❌','Stream not working','We couldn\'t load this source.',true,false);
+        setTimeout(()=>{showSwBanner('Switching to next stream…');_load(_i+1);},1800);
+      }else{_allExhausted();}
+    },{once:true});
+  }
+  function _hc(gen){
+    if(_g!==gen)return;const fr=_fr;if(!fr)return;
+    try{const doc=fr.contentDocument||fr.contentWindow?.document;
+      if(doc&&doc.body){
+        const h=doc.body.scrollHeight||0,title=(doc.title||'').toLowerCase();
+        if(/403|forbidden|denied|blocked|geo/i.test(title)){GA.send('embed_health_warning',{reason:'blocked_title',doc_title:title.slice(0,40)});return;}
+        if(/offline|unavailable|error|not found/i.test(title)){GA.send('embed_health_warning',{reason:'error_title',doc_title:title.slice(0,40)});return;}
+        const hv=doc.querySelectorAll('video').length>0,hc=doc.querySelectorAll('canvas').length>0,hi=doc.querySelectorAll('iframe').length>0;
+        if(!hv&&!hc&&!hi&&h<CFG.EMBED_DEAD_PX){GA.send('embed_health_warning',{reason:'low_body_height',body_height:h});}
+        else{GA.send('embed_health_ok',{has_video:hv,has_canvas:hc,has_iframe:hi,body_height:h});}
+      }
+    }catch{}
+    _ht=setTimeout(()=>_hc(gen),20000);
+  }
+  return{
+    mount(srcs,gen){
+      _s=Array.isArray(srcs)?srcs.filter(safe):[];_i=0;_g=gen;
+      GA.send('embed_mount',{source_count:_s.length,first_url:(_s[0]||'').slice(0,80)});
+      if(!_s.length){showFallback();return;}
+      D.embedHost.classList.add('active');_fr=D.embedFrame;_load(0,gen);
+    },
+    unmount(){
+      clearTimeout(_lt);clearTimeout(_ht);clearInterval(_si);_si=null;_g=-1;
+      D.embedHost.classList.remove('active');D.eeOverlay.classList.remove('active');
+      try{if(_fr)_fr.src='about:blank';}catch{}
+      if(_fr)_fr.classList.remove('visible');_fr=D.embedFrame;
+      D.embedShimmer.classList.remove('hidden');_s=[];_i=0;
+    },
+    retry(){GA.send('embed_retry',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80)});_hideEE();_load(_i,_g);},
+    nextSource(){const n=(_i+1)%_s.length;GA.send('embed_next_source',{from_index:_i,to_index:n,trigger_source:'button'});showSwBanner();_load(n,_g);}
+  };
+})();
+
+/* ══════════════════════════════════════════════════════
+ * Adapters
+ * ══════════════════════════════════════════════════════ */
+const ADAPTERS=[
+  {name:'native-hls',pri:0,supports:s=>s.type==='hls'&&isIOS(),async load(){},
+    init(hid,s){return withTO(new Promise((res,rej)=>{
+      const v=newVid({controls:true,muted:true,playsinline:true});v.src=s.url;
+      document.getElementById(hid).appendChild(v);curPlayer=v;instances.push(v);
+      GA.attachVideo(v,'native-hls');
+      v.addEventListener('loadedmetadata',()=>{safePlay(v);res();},{once:true});
+      v.addEventListener('error',()=>rej(new Error('Native HLS failed')),{once:true});
+    }),20000);}},
+
+  {name:'jwplayer',pri:1,supports:()=>typeof jwplayer!=='undefined',async load(){},
+    init(hid,s){return withTO(new Promise((res,rej)=>{
+      const el=document.createElement('div');el.id=hid+'_jw';document.getElementById(hid).appendChild(el);
+      const p=jwplayer(el.id).setup({file:s.url,type:s.type==='hls'?'hls':'dash',width:'100%',height:'100%',autostart:!isIOS(),mute:isIOS(),hlshtml:true,primary:'html5',image:'https://cdn.jwplayer.com/images/6cbPZG9A.png',skin:{name:'netflix'},cast:{},stretching:'uniform',...(s.drm?{drm:{clearkey:{keyId:s.drm.keyId,key:s.drm.key}}}:{})});
+      let done=false;
+      p.on('ready',()=>{if(done)return;done=true;instances.push(p);curPlayer=p;
+        const lv=p.getQualityLevels();
+        if(lv?.length)setQuality(lv.map((l,i)=>({label:l.label||`${l.height}p`,value:i})),(idx)=>p.setCurrentQuality(idx));
+        else hideQuality();
+        p.on('play',()=>GA.send('video_play',{adapter_name:'jwplayer'}));
+        p.on('pause',()=>GA.send('video_pause',{adapter_name:'jwplayer',current_time:Math.round(p.getPosition())}));
+        p.on('buffer',()=>GA.send('video_buffering_start',{adapter_name:'jwplayer',current_time:Math.round(p.getPosition())}));
+        p.on('idle',()=>GA.send('video_jwplayer_idle',{current_time:Math.round(p.getPosition())}));
+        p.on('mute',(e)=>GA.send('volume_changed',{muted:e.mute,adapter_name:'jwplayer',trigger_source:'jwplayer'}));
+        p.on('levelsChanged',(e)=>GA.send('quality_changed',{to_quality:lv[e.currentQuality]?.label||String(e.currentQuality),adapter_name:'jwplayer'}));
+        res();
+      });
+      p.on('error',e=>{if(!done){done=true;rej(new Error(`JWPlayer: ${e.message}`));}});
+      p.on('setupError',e=>{if(!done){done=true;rej(new Error(`JWPlayer Setup: ${e.message}`));}});
+    }));}},
+
+  {name:'shaka',pri:2,supports:()=>true,
+    async load(){await loadSc('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.min.js');},
+    init(hid,s){return withTO(new Promise(async(res,rej)=>{let done=false;const D2=fn=>{if(!done){done=true;fn();}};
+      const v=newVid({controls:true});document.getElementById(hid).appendChild(v);
+      shaka.polyfill.installAll();if(!shaka.Player.isBrowserSupported())return D2(()=>rej(new Error('Shaka: not supported')));
+      const p=new shaka.Player(v);instances.push(p);curPlayer=v;
+      GA.attachVideo(v,'shaka');
+      p.configure({streaming:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2,fuzzFactor:.5,timeout:30000},bufferingGoal:30,rebufferingGoal:2,ignoreTextStreamFailures:true,jumpLargeGaps:true,stallEnabled:true,stallThreshold:1,stallSkip:.1},manifest:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2},dash:{ignoreMinBufferTime:true}}});
+      p.addEventListener('error',e=>{const c=e.detail?.code||0;GA.send('shaka_error',{error_code:c,adapter_name:'shaka'});D2(()=>rej(new Error(`Shaka: code ${c}`)));});
+      p.addEventListener('buffering',e=>{GA.send(e.detail.buffering?'video_buffering_start':'video_buffering_end',{adapter_name:'shaka'});});
+      if(refP)p.getNetworkingEngine().registerRequestFilter((t,req)=>{req.headers['Referer']=refP;});
+      if(s.drm)p.configure({drm:{clearKeys:{[s.drm.keyId]:s.drm.key}}});
+      try{await p.load(s.url);setTimeout(()=>safePlay(v),100);
+        const tr=p.getVariantTracks().filter(t=>t.type==='variant');
+        if(tr.length){const u=[],se=new Set();tr.forEach(t=>{const lab=t.height?`${t.height}p`:`${Math.round(t.bandwidth/1000)}k`;if(!se.has(lab)){se.add(lab);u.push({label:lab,value:t});}});u.sort((a,b)=>(a.value.bandwidth||0)-(b.value.bandwidth||0));setQuality(u.map(t=>({label:t.label,value:t.value})),(t)=>{p.configure({abr:{enabled:false}});p.selectVariantTrack(t,true);});}else hideQuality();
+        D2(()=>res());}catch(e){D2(()=>rej(new Error(`Shaka: ${e.message}`)));}}));}},
+
+  {name:'hlsjs',pri:3,supports:s=>s.type==='hls',
+    async load(){await loadSc('https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js');},
+    init(hid,s){return withTO(new Promise((res,rej)=>{if(!Hls.isSupported())return rej(new Error('HLS.js: MSE not supported'));
+      const v=newVid({controls:true});document.getElementById(hid).appendChild(v);curPlayer=v;
+      GA.attachVideo(v,'hlsjs');
+      const h=new Hls({enableWorker:true,lowLatencyMode:true,backBufferLength:90,maxBufferLength:30,maxMaxBufferLength:600,fragLoadingTimeOut:20000,fragLoadingMaxRetry:6,manifestLoadingTimeOut:12000,manifestLoadingMaxRetry:4,startFragPrefetch:true,nudgeOffset:.3,nudgeMaxRetry:5,autoStartLoad:true,startPosition:-1});
+      instances.push(h);let done=false;
+      h.on(Hls.Events.FRAG_LOADED,(e,d)=>{GA.send('hls_fragment_loaded',{frag_duration_ms:d.stats?.loading?.end-d.stats?.loading?.start||0,frag_size:d.stats?.total||0,adapter_name:'hlsjs'});});
+      h.on(Hls.Events.LEVEL_SWITCHED,(e,d)=>{GA.send('quality_changed',{to_quality:h.levels[d.level]?.height?`${h.levels[d.level].height}p`:String(d.level),adapter_name:'hlsjs',trigger_source:'auto'});});
+      h.on(Hls.Events.ERROR,(_,d)=>{
+        if(d.fatal){
+          GA.send('hlsjs_fatal_error',{error_type:d.type,error_details:d.details,adapter_name:'hlsjs'});
+          if(!done){
+            if(d.type===Hls.ErrorTypes.NETWORK_ERROR){h.startLoad();return;}
+            if(d.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();return;}
+            done=true;rej(new Error(`HLS.js: ${d.type}/${d.details}`));
+          }
+        }else{GA.send('hlsjs_recoverable_error',{error_type:d.type,error_details:d.details,adapter_name:'hlsjs'});}
+      });
+      h.loadSource(s.url);h.attachMedia(v);
+      h.once(Hls.Events.MANIFEST_PARSED,()=>{if(done)return;done=true;
+        if(h.levels?.length)setQuality(h.levels.map((l,i)=>({label:l.height?`${l.height}p`:`${Math.round(l.bitrate/1000)}k`,value:i})),(idx)=>{h.currentLevel=idx;});else hideQuality();
+        safePlay(v);res();});
+    }));}},
+
+  {name:'dashjs',pri:4,supports:s=>s.type==='dash',
+    async load(){await loadSc('https://cdn.dashjs.org/latest/dash.all.min.js');},
+    init(hid,s){return withTO(new Promise((res,rej)=>{const v=newVid({controls:true});document.getElementById(hid).appendChild(v);
+      const p=dashjs.MediaPlayer().create();instances.push(p);curPlayer=v;
+      GA.attachVideo(v,'dashjs');
+      let done=false;
+      p.on(dashjs.MediaPlayer.events.PLAYBACK_STARTED,()=>{if(done)return;done=true;const bl=p.getBitrateInfoListFor('video');if(bl?.length)setQuality(bl.map((b,i)=>({label:b.height?`${b.height}p`:`${Math.round(b.bitrate/1000)}k`,value:i})),(idx)=>p.setQualityFor('video',idx,true));else hideQuality();res();});
+      p.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED,(e)=>{GA.send('quality_changed',{from_quality:String(e.oldQuality),to_quality:String(e.newQuality),adapter_name:'dashjs',trigger_source:'auto'});});
+      p.on(dashjs.MediaPlayer.events.ERROR,e=>{if(!done){done=true;GA.send('dashjs_error',{error_message:e.message||'unknown',adapter_name:'dashjs'});rej(new Error(`Dash.js: ${e.message||'Unknown'}`));}});
+      if(s.drm)p.setProtectionData({'org.w3.clearkey':{clearkeys:{[s.drm.keyId]:s.drm.key}}});
+      p.initialize(v,s.url,true);}));}},
+
+  {name:'videojs',pri:5,supports:()=>true,
+    async load(){await loadSc('https://vjs.zencdn.net/8.10.0/video.min.js');},
+    init(hid,s){return withTO(new Promise((res,rej)=>{const v=newVid({controls:false});v.id=hid+'_vjs';document.getElementById(hid).appendChild(v);
+      const p=videojs(v.id,{autoplay:true,controls:true,sources:[{src:s.url,type:s.type==='hls'?'application/x-mpegURL':'application/dash+xml'}]});
+      instances.push(p);curPlayer=v;
+      GA.attachVideo(v,'videojs');
+      let done=false;
+      p.ready(()=>{if(!done){done=true;p.play();hideQuality();res();}});
+      p.on('error',()=>{if(!done){done=true;GA.send('videojs_error',{adapter_name:'videojs'});rej(new Error('VideoJS: Could not play stream'));}});
+    }));}},
+
+  {name:'native',pri:6,supports:()=>true,async load(){},
+    init(hid,s){const ios=isIOS();return withTO(new Promise((res,rej)=>{
+      const v=newVid({controls:true,...(ios&&{muted:true,playsinline:true})});v.src=s.url;
+      document.getElementById(hid).appendChild(v);curPlayer=v;
+      GA.attachVideo(v,'native');
+      v.addEventListener(ios?'loadedmetadata':'canplay',()=>{safePlay(v);hideQuality();res();},{once:true});
+      v.addEventListener('error',()=>rej(new Error('Native: Format not supported')),{once:true});
+      safePlay(v);
+    }),ios?20000:CFG.PLAYER_TO);}},
+];
+
+/* ── Playback orchestration ──────────────────────────── */
+async function playStream(stream,gen){
+  hideError();clearHost();D.initPh.style.display='none';
+  if(stream.type==='embed'){
+    setLoading(false);
+    EmbedMgr.mount(stream.embedUrls?.length?stream.embedUrls:[stream.url],gen);
+    setBadge(stream);setOverlay(false);
+    GA.send('stream_play_started',{stream_type:'embed',stream_index:curIdx+1,stream_name:lbl(curIdx).name});
+    return;
+  }
+  D.host.style.display='block';
+  const cands=ADAPTERS
+    .filter(a=>{try{return a.supports(stream);}catch{return false;}})
+    .sort((a,b)=>{const dp=!!(stream.drm);const ap=dp&&a.name==='jwplayer'?99:a.pri;const bp=dp&&b.name==='jwplayer'?99:b.pri;return ap-bp;});
+  let ok=false,lastE='',okAdapter='';
+  const total=cands.length;let ai=0;
+  const playT0=Date.now();
+  GA.send('stream_play_attempt',{stream_type:stream.type,stream_index:curIdx+1,stream_name:lbl(curIdx).name,has_drm:!!(stream.drm),adapter_count:total});
+  for(const adapter of cands){
+    if(gen!==playGen)return;
+    ai++;
+    const pct=Math.round((ai/(total+1))*90);
+    setLoading(true,ai===1?'Loading stream…':'Trying another source…',pct);
+    const wid='ph_'+Date.now();const wrap=document.createElement('div');
+    wrap.id=wid;wrap.style.cssText='width:100%;height:100%;position:absolute;inset:0;background:#000;';
+    D.host.appendChild(wrap);
+    const adT0=Date.now();
+    GA.send('adapter_attempt',{adapter_name:adapter.name,attempt_number:ai,total_adapters:total,stream_type:stream.type});
+    try{
+      Perf.log.push(adapter.name);
+      await adapter.load();
+      if(gen!==playGen)return;
+      await adapter.init(wid,stream);
+      ok=true;okAdapter=adapter.name;curAdapter=adapter.name;
+      GA.send('adapter_success',{adapter_name:adapter.name,attempt_number:ai,init_ms:Date.now()-adT0,total_ms:Date.now()-playT0,stream_type:stream.type});
+      break;
+    }catch(e){
+      lastE=e?.message||'Unknown';
+      GA.send('adapter_fail',{adapter_name:adapter.name,attempt_number:ai,error_message:lastE.slice(0,120),elapsed_ms:Date.now()-adT0,stream_type:stream.type});
+      try{D.host.removeChild(wrap);}catch{}
+      if(ai<total)showSwBanner('Trying another source…');
+    }
+  }
+  if(gen!==playGen)return;
+  if(!ok){
+    hideSwBanner();setOverlay(false);setLoading(false);setBadge(null);
+    GA.send('adapter_all_failed',{adapters_tried:ai,last_error:lastE.slice(0,120),stream_type:stream.type,total_ms:Date.now()-playT0});
+    showError(lastE);
+  }else{
+    hideSwBanner();
+    Perf.pStart=Date.now();appState='playing';
+    const needOv=!CFG.SELF_CTRL.has(okAdapter);
+    setOverlay(needOv);if(needOv)D.pbBar.classList.add('on');
+    setLoading(false);setBadge(stream);setActivBtn(curIdx);
+    GA.startMilestones();
+    GA.send('stream_play_started',{stream_type:stream.type,adapter_name:okAdapter,stream_index:curIdx+1,stream_name:lbl(curIdx).name,time_to_play_ms:Date.now()-playT0,has_drm:!!(stream.drm)});
+  }
+}
+
+/* ── Fallback screen ─────────────────────────────────── */
+function showFallback(reason='all_failed'){
+  GA.stopMilestones();
+  clearHost();appState='fallback';setOverlay(false);setBadge(null);
+  const w=document.createElement('div');w.className='fb-wrap';
+  const fs=CFG.FALLBACK_URL&&safe(CFG.FALLBACK_URL)?CFG.FALLBACK_URL:'';
+  w.innerHTML=`
+    <p class="fb-ttl">⚠ Stream unavailable</p>
+    <p>All sources failed. ${fs?'Showing backup channel.':'No backup channel configured.'}</p>
+    ${fs?`<iframe src="${fs}" frameborder="0" allowfullscreen sandbox="${CFG.SANDBOX}"></iframe>`:'<p style="color:rgba(255,255,255,.3);margin-top:8px">Set a FALLBACK_URL in the player config to show a backup here.</p>'}
+    <button type="button" onclick="SP.go(0)" style="margin-top:8px;padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">↺ Try Primary Again</button>
+  `;
+  D.host.appendChild(w);D.host.style.display='block';
+  GA.send('fallback_shown',{reason,has_fallback_url:!!fs,stream_index:curIdx+1,total_errors:Perf.errors,session_sec:Math.round((Date.now()-Perf.t0)/1000)});
+}
+
+/* ── Stream loading ──────────────────────────────────── */
+async function loadStreams(){
+  const result=[];
+  setLoading(true,'Finding best stream…',10);
+  GA.send('streams_load_start',{mora_count:moraP.length,embed_count:embedP.length});
+  const t0=Date.now();
+  const results=await Promise.allSettled(moraP.map(url=>resolveStream(url)));
+  const mora=[];
+  results.forEach((r,i)=>{
+    if(r.status==='fulfilled'&&r.value)mora.push({...r.value,originalUrl:moraP[i]});
+    else{console.warn(`mora[${i}] failed:`,r.reason?.message);GA.send('stream_resolve_fail',{stream_index:i,reason:r.reason?.message||'unknown'});}
+  });
+  if(embedP.length)result.push({type:'embed',url:embedP[0],embedUrls:embedP,originalUrl:embedP[0]});
+  if(isIOS()){const hls=mora.filter(s=>s.type==='hls'),oth=mora.filter(s=>s.type!=='hls'&&s.type!=='dash');result.unshift(...hls,...oth);}
+  else result.unshift(...mora);
+  GA.send('streams_load_complete',{total_streams:result.length,hls_count:result.filter(s=>s.type==='hls').length,dash_count:result.filter(s=>s.type==='dash').length,embed_count:result.filter(s=>s.type==='embed').length,resolve_ms:Date.now()-t0});
+  return result;
+}
+
+/* ── Navigation ──────────────────────────────────────── */
+function switchNext(trigger='button'){
+  if(!streams.length)return;
+  const nextIdx=getNextPreferredIndex(curIdx);
+  GA.send('stream_switched',{from_index:curIdx+1,to_index:nextIdx+1,from_name:lbl(curIdx).name,to_name:lbl(nextIdx).name,trigger_source:trigger,watch_sec_before_switch:Perf.sec()});
+  Perf.switches++;
+  go(nextIdx);
+  toast(`${lbl(nextIdx).icon} ${lbl(nextIdx).name}`);
+}
+
+function refresh(trigger='button'){
+  if(!curStream)return;
+  GA.send('stream_refreshed',{stream_index:curIdx+1,stream_name:lbl(curIdx).name,stream_type:curStream.type,trigger_source:trigger,watch_sec_before_refresh:Perf.sec()});
+  if(curStream.type!=='embed')cDel(CFG.CACHE_PREFIX+curStream.originalUrl);
+  if(curStream.type==='embed'){EmbedMgr.retry();toast('↺ Reloading…');return;}
+  go(curIdx);toast('↺ Refreshed');
+}
+
+async function go(idx){
+  cancelAutoNextSwitch('navigation');
+  if(!streams.length)return;
+  if(curStream&&Perf.pStart){GA.send('stream_play_ended',{stream_index:curIdx+1,watch_sec:Perf.sec(),adapter_name:curAdapter});}
+  idx=Math.max(0,Math.min(idx,streams.length-1));
+  curIdx=idx;curStream=streams[idx];
+  const gen=++playGen;Perf.goT=Date.now();Perf.pStart=null;retryCount=0;
+  D.btnRefresh.disabled=true;setActivBtn(idx);
+  try{localStorage.setItem(CFG.STORAGE_KEY,String(idx));}catch{}
+  try{await playStream(curStream,gen);}
+  finally{if(gen===playGen){D.btnRefresh.disabled=false;setActivBtn(idx);}}
+}
+
+/* ── Gestures ────────────────────────────────────────── */
+const GC=(()=>{
+  let ts=null;
+  function gh(msg){clearTimeout(gTimer);D.gHint.textContent=msg;D.gHint.classList.add('show');gTimer=setTimeout(()=>D.gHint.classList.remove('show'),1800);}
+  return{init(){
+    D.stage.addEventListener('touchstart',e=>{const t=e.touches[0];ts={x:t.clientX,y:t.clientY,t:Date.now()};},{passive:true});
+    D.stage.addEventListener('touchend',e=>{
+      if(!ts)return;const t=e.changedTouches[0];const dx=t.clientX-ts.x,dy=t.clientY-ts.y,dt=Date.now()-ts.t;ts=null;
+      if(dt>600||(Math.abs(dx)<CFG.GESTURE_T&&Math.abs(dy)<CFG.GESTURE_T))return;
+      if(Math.abs(dx)>Math.abs(dy)){
+        if(dx<-CFG.GESTURE_T){GA.send('gesture_swipe',{direction:'left',action:'next_stream',stream_index:curIdx+1});switchNext('swipe');gh('→ Next stream');}
+        else if(dx>CFG.GESTURE_T){GA.send('gesture_swipe',{direction:'right',action:'refresh',stream_index:curIdx+1});refresh('swipe');gh('↺ Refreshed');}
+      }else{
+        if(!D.stage.classList.contains('has-ov'))return;
+        const delta=dy<0?10:-10;
+        const nv=Math.max(0,Math.min(100,parseInt(D.volSl.value,10)+delta));
+        D.volSl.value=String(nv);D.volSl.dispatchEvent(new Event('input'));
+        GA.send('gesture_volume',{direction:dy<0?'up':'down',new_volume:nv});
+        gh(dy<0?`🔊 ${nv}%`:`🔉 ${nv}%`);
+      }
+    },{passive:true});
+  }};
+})();
+
+/* ── Keyboard ────────────────────────────────────────── */
+document.addEventListener('keydown',e=>{
+  if(e.target!==document.body)return;
+  const k=e.key.toLowerCase();
+  if(k==='s'){e.preventDefault();GA.send('keyboard_shortcut',{key:'s',action:'switch_stream'});switchNext('keyboard');}
+  if(k==='r'){e.preventDefault();GA.send('keyboard_shortcut',{key:'r',action:'refresh'});refresh('keyboard');}
+  if(k==='f'){e.preventDefault();GA.send('keyboard_shortcut',{key:'f',action:'fullscreen'});SP.toggleFullscreen('keyboard');}
+  if(k==='p'){e.preventDefault();GA.send('keyboard_shortcut',{key:'p',action:'pip'});SP.togglePiP('keyboard');}
+  if(e.key==='?'){e.preventDefault();GA.send('keyboard_shortcut',{key:'?',action:'help'});SP.showHelp();}
+  if(k==='v'&&D.stage.classList.contains('has-ov')){
+    e.preventDefault();
+    const newVol=D.volSl.value==='0'?'100':'0';
+    GA.send('keyboard_shortcut',{key:'v',action:D.volSl.value==='0'?'unmute':'mute'});
+    D.volSl.value=newVol;D.volSl.dispatchEvent(new Event('input'));
+  }
+  const n=parseInt(e.key,10);
+  if(!isNaN(n)&&n>=1&&n<=streams.length){
+    e.preventDefault();
+    GA.send('keyboard_shortcut',{key:String(n),action:'select_stream',target_index:n});
+    go(n-1);toast(`${lbl(n-1).icon} ${lbl(n-1).name}`);
+  }
+  if(D.stage.classList.contains('has-ov')){
+    if(e.key==='ArrowUp'){e.preventDefault();const nv=Math.min(100,parseInt(D.volSl.value,10)+5);GA.send('keyboard_shortcut',{key:'ArrowUp',action:'volume_up',new_volume:nv});D.volSl.value=String(nv);D.volSl.dispatchEvent(new Event('input'));}
+    if(e.key==='ArrowDown'){e.preventDefault();const nv=Math.max(0,parseInt(D.volSl.value,10)-5);GA.send('keyboard_shortcut',{key:'ArrowDown',action:'volume_down',new_volume:nv});D.volSl.value=String(nv);D.volSl.dispatchEvent(new Event('input'));}
+  }
+});
+
+/* ── Fullscreen / PiP ────────────────────────────────── */
+function toggleFullscreen(trigger='button'){
+  if(document.fullscreenElement){document.exitFullscreen().catch(()=>toast('Exit fullscreen failed'));GA.send('fullscreen_exit',{trigger_source:trigger,adapter_name:curAdapter});return;}
+  GA.send('fullscreen_enter',{trigger_source:trigger,adapter_name:curAdapter,stream_type:curStream?.type||'none'});
+  if(curAdapter==='jwplayer'&&curPlayer&&typeof curPlayer.setFullscreen==='function'){curPlayer.setFullscreen(true);return;}
+  if(curStream&&curStream.type==='embed'&&D.embedFrame){
+    if(D.embedFrame.requestFullscreen){D.embedFrame.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));}
+    else if(D.embedFrame.webkitEnterFullscreen){D.embedFrame.webkitEnterFullscreen();}
+    return;
+  }
+  const videoElem=D.stage.querySelector('video');
+  if(videoElem){
+    if(videoElem.requestFullscreen){videoElem.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));return;}
+    else if(videoElem.webkitEnterFullscreen){videoElem.webkitEnterFullscreen();return;}
+  }
+  D.stage.requestFullscreen().catch(()=>toast('Fullscreen not supported on this device'));
+}
+function togglePiP(trigger='button'){
+  if(!curPlayer||!(curPlayer instanceof HTMLVideoElement)){toast('PiP not available for this player');GA.send('pip_fail',{reason:'no_video_element',trigger_source:trigger});return;}
+  if(document.pictureInPictureElement){document.exitPictureInPicture();GA.send('pip_exit',{trigger_source:trigger});}
+  else{curPlayer.requestPictureInPicture().then(()=>GA.send('pip_enter',{trigger_source:trigger,adapter_name:curAdapter})).catch(()=>{toast('PiP not available');GA.send('pip_fail',{reason:'api_error',trigger_source:trigger});});}
+}
+document.addEventListener('enterpictureinpicture',()=>GA.send('pip_enter_native',{adapter_name:curAdapter}));
+document.addEventListener('leavepictureinpicture',()=>GA.send('pip_exit_native',{adapter_name:curAdapter}));
+document.addEventListener('fullscreenchange',()=>{GA.send(document.fullscreenElement?'fullscreen_active':'fullscreen_inactive',{adapter_name:curAdapter});});
+
+/* ── Help ────────────────────────────────────────────── */
+function showHelp(){D.scOverlay.classList.add('active');GA.send('help_opened',{trigger_source:'button'});}
+function closeHelp(){D.scOverlay.classList.remove('active');GA.send('help_closed');}
+
+/* ── Error actions ───────────────────────────────────── */
+function handleErrorRetry(){
+  cancelAutoNextSwitch('user_retry');
+  if(retryCount<CFG.MAX_RETRY){
+    retryCount++;
+    GA.send('error_retry',{retry_number:retryCount,max_retry:CFG.MAX_RETRY,stream_index:curIdx+1,adapter_name:curAdapter});
+    hideError();go(curIdx);
+  }else{toast('No more retries — try a different stream');GA.send('error_retry_exhausted',{stream_index:curIdx+1,total_errors:Perf.errors});}
+}
+function handleErrorFallback(){
+  cancelAutoNextSwitch('user_fallback');
+  GA.send('use_backup_clicked',{trigger:'error_panel',stream_index:curIdx+1});
+  hideError();showFallback('user_requested');
+}
+
+/* ── Init ────────────────────────────────────────────── */
+(async()=>{
+  GA.send('session_start',{mora_sources:moraP.length,embed_sources:embedP.length,has_drm_key:!!drmKP,referrer:document.referrer.slice(0,80)||'direct',user_agent:navigator.userAgent.slice(0,120),screen_width:screen.width,screen_height:screen.height,device_pixel_ratio:window.devicePixelRatio||1});
+  if(!moraP.length&&!embedP.length){
+    D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No stream source provided.</p>';
+    setLoading(false);GA.send('init_no_sources');return;
+  }
+  GC.init();
+  streams=await loadStreams();
+  if(!streams.length){
+    D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No playable streams found.</p>';
+    showFallback('no_streams');setLoading(false);return;
+  }
+  buildBtns(streams);
+  let savedIdx=0;
+  try{const s=parseInt(localStorage.getItem(CFG.STORAGE_KEY),10);if(!isNaN(s)&&s>=0&&s<streams.length){savedIdx=s;GA.send('saved_stream_restored',{saved_index:s+1});}}catch{}
+  await go(savedIdx);
+
+  // Wire up all buttons via addEventListener (no inline onclick)
+  D.eeRetryBtn.addEventListener('click',()=>EmbedMgr.retry());
+  D.eeNext.addEventListener('click',()=>EmbedMgr.nextSource());
+  D.eeFallback.addEventListener('click',()=>SP.goFallback());
+  D.btnRetry.addEventListener('click',()=>handleErrorRetry());
+  D.btnFallback.addEventListener('click',()=>handleErrorFallback());
+  D.btnRefresh.addEventListener('click',()=>refresh('click'));
+  D.btnFullscreen.addEventListener('click',()=>toggleFullscreen('click'));
+  D.btnPip.addEventListener('click',()=>togglePiP('click'));
+  D.btnHelp.addEventListener('click',()=>showHelp());
+  D.scCloseBtn.addEventListener('click',()=>closeHelp());
+  D.pbFsBtn.addEventListener('click',()=>toggleFullscreen('click'));
+})();
+
+/* ── Public API ──────────────────────────────────────── */
+return{
+  switchNext:(t)=>switchNext(t||'button'),
+  refresh:(t)=>refresh(t||'button'),
+  go,
+  showHelp,
+  closeHelp,
+  toggleFullscreen:(t)=>toggleFullscreen(t||'button'),
+  togglePiP:(t)=>togglePiP(t||'button'),
+  handleErrorRetry,
+  handleErrorFallback,
+  goFallback(){
+    cancelAutoNextSwitch('user_fallback');
+    GA.send('use_backup_clicked',{trigger:'embed_error_panel',stream_index:curIdx+1});
+    EmbedMgr.unmount();showFallback('user_requested');
+  },
+  retryEmbed:()=>EmbedMgr.retry(),
+  nextEmbedSource:()=>EmbedMgr.nextSource(),
+};
 })();
 </script>
+
 </body>
 </html>
