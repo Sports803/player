@@ -8,10 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdn.jwplayer.com/libraries/IDzF9Zmk.js"></script>
-<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y5EVJ9NQ5B"></script>
 <script>
-/* GA Setup */
 window.dataLayer=window.dataLayer||[];
 function gtag(){dataLayer.push(arguments);}
 gtag('js',new Date());
@@ -30,13 +28,25 @@ gtag('config','G-Y5EVJ9NQ5B',{send_page_view:true,transport_type:'beacon'});
 }
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
 #app{display:flex;flex-direction:column;width:100%;height:100%;position:fixed;inset:0}
+
+/* Stage */
 #stage{position:relative;flex:1;background:#000;overflow:hidden}
 #player-host,#embed-host{position:absolute;inset:0;width:100%;height:100%}
 #player-host{background:#000;z-index:2;display:none}
 #embed-host{z-index:3;display:none;flex-direction:column;background:#000}
 #embed-host.active{display:flex}
+#embed-frame{flex:1;width:100%;border:none;display:none}
+#embed-frame.ready{display:block}
 
-/* Top Right Auto Button */
+/* Init placeholder */
+#init-ph{
+  position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:12px;background:var(--bg);
+}
+#init-ph p{color:var(--dim);font-size:14px}
+#init-ph .spinner{width:32px;height:32px;border:3px solid var(--border2);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}
+
+/* Auto Button */
 #auto-btn{
   position:absolute;top:12px;right:14px;z-index:50;
   display:flex;align-items:center;gap:6px;
@@ -46,59 +56,251 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
   cursor:pointer;backdrop-filter:blur(12px);transition:all .2s;
   user-select:none;
 }
-#auto-btn:hover{background:rgba(229,24,26,0.9);border-color:var(--red);}
-#auto-btn svg{width:16px;height:16px}
+#auto-btn:hover{background:rgba(229,24,26,0.9);border-color:var(--red)}
+#auto-btn svg{width:16px;height:16px;flex-shrink:0}
 
-/* Rest of your existing styles (btn-row, player, etc.) */
-#btn-row{display:none;flex-shrink:0;height:50px;background:var(--surface);border-top:1px solid var(--border);padding:0 10px;gap:7px;overflow-x:auto;align-items:center;scrollbar-width:none;z-index:200}
+/* Live Badge */
+#live-badge{
+  position:absolute;top:12px;left:14px;z-index:50;
+  display:none;align-items:center;gap:6px;
+  padding:5px 11px;background:rgba(229,24,26,0.92);
+  border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.06em;
+  backdrop-filter:blur(8px);
+}
+#live-badge.visible{display:flex}
+.live-dot{width:7px;height:7px;background:#fff;border-radius:50%;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* Embed shimmer */
+#embed-shimmer{
+  position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;background:#000;
+  transition:opacity .3s;
+}
+#embed-shimmer.hidden{opacity:0;pointer-events:none}
+.sh-icon{font-size:36px}
+.sh-text{color:var(--dim);font-size:13px}
+.sh-track{width:160px;height:3px;background:var(--border2);border-radius:99px;overflow:hidden}
+.sh-fill{height:100%;background:var(--red);border-radius:99px;animation:shimload 2s ease-in-out infinite}
+@keyframes shimload{0%{width:0}60%{width:90%}100%{width:100%}}
+
+/* Embed error */
+#embed-err{
+  position:absolute;inset:0;z-index:20;display:none;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.85);
+  padding:24px;text-align:center;
+}
+#embed-err.visible{display:flex}
+.ee-icon{font-size:42px}
+.ee-title{font-size:18px;font-weight:700}
+.ee-msg{color:var(--dim);font-size:13px;max-width:320px;line-height:1.5}
+.ee-acts{display:flex;gap:8px;margin-top:8px}
+.ee-btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .18s}
+.ee-btn.primary{background:var(--red);color:#fff}
+.ee-btn.primary:hover{background:var(--red-hover)}
+.ee-btn.sec{background:var(--surface2);color:var(--dim);border:1px solid var(--border2)}
+.ee-btn.sec:hover{color:var(--text)}
+
+/* Loading overlay */
+#loading{
+  position:absolute;inset:0;z-index:40;display:none;
+  flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
+}
+#loading.visible{display:flex}
+.spinner{width:32px;height:32px;border:3px solid var(--border2);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#load-txt{color:var(--dim);font-size:13px}
+
+/* Switch banner */
+#sw-banner{
+  position:absolute;bottom:60px;left:50%;transform:translateX(-50%);z-index:45;
+  display:none;align-items:center;gap:8px;padding:8px 18px;
+  background:rgba(10,10,10,.85);border:1px solid var(--border2);
+  border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap;
+  backdrop-filter:blur(10px);
+}
+#sw-banner.visible{display:flex}
+.sw-dot{width:8px;height:8px;background:var(--amber);border-radius:50%;animation:pulse 1s ease-in-out infinite}
+
+/* Error panel */
+#err-panel{
+  position:absolute;inset:0;z-index:35;display:none;
+  flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:rgba(0,0,0,.8);padding:28px;text-align:center;
+}
+#err-panel.visible{display:flex}
+#err-icon{font-size:44px}
+#err-title{font-size:18px;font-weight:700}
+#err-msg{color:var(--dim);font-size:13px;max-width:340px;line-height:1.55}
+#err-acts{display:flex;gap:8px;margin-top:6px}
+.ep-btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .18s}
+.ep-btn.primary{background:var(--red);color:#fff}
+.ep-btn.primary:hover{background:var(--red-hover)}
+.ep-btn.sec{background:var(--surface2);color:var(--dim);border:1px solid var(--border2)}
+.ep-btn.sec:hover{color:var(--text)}
+
+/* Playback bar */
+#pb-bar{
+  position:absolute;bottom:0;left:0;right:0;z-index:30;
+  height:48px;display:flex;align-items:center;padding:0 12px;gap:10px;
+  background:linear-gradient(transparent,rgba(0,0,0,.75));
+  opacity:0;transition:opacity .25s;pointer-events:none;
+}
+#stage:hover #pb-bar,#pb-bar:focus-within{opacity:1;pointer-events:all}
+#pb-mute{background:none;border:none;cursor:pointer;color:#fff;padding:4px;line-height:1;font-size:18px}
+#pb-vol{width:70px;accent-color:var(--red);cursor:pointer}
+#pb-spacer{flex:1}
+#pb-quality{background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer}
+
+/* Toast */
+#toast{
+  position:absolute;bottom:68px;left:50%;transform:translateX(-50%) translateY(8px);
+  z-index:60;padding:8px 18px;background:rgba(20,20,20,.92);
+  border:1px solid var(--border2);border-radius:99px;
+  font-size:12px;font-weight:600;white-space:nowrap;
+  backdrop-filter:blur(12px);opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* Gesture hint */
+#g-hint{
+  position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;opacity:0;transition:opacity .2s;
+}
+#g-hint.show{opacity:1}
+.gh-inner{padding:10px 22px;background:rgba(0,0,0,.65);border-radius:10px;font-size:14px;font-weight:600}
+
+/* Shortcuts overlay */
+#sc-overlay{
+  position:absolute;inset:0;z-index:55;display:none;
+  align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+}
+#sc-overlay.visible{display:flex}
+.sc-box{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:24px 32px;min-width:280px}
+.sc-box h3{font-size:15px;font-weight:700;margin-bottom:16px}
+.sc-row{display:flex;justify-content:space-between;gap:24px;padding:5px 0;font-size:13px;color:var(--dim);border-bottom:1px solid var(--border)}
+.sc-row:last-child{border-bottom:none}
+.sc-key{font-family:var(--mono);background:var(--surface2);padding:2px 7px;border-radius:5px;font-size:11px;color:var(--text)}
+#sc-close{margin-top:16px;width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer}
+#sc-close:hover{color:var(--text)}
+
+/* Button row */
+#btn-row{
+  display:none;flex-shrink:0;height:50px;background:var(--surface);
+  border-top:1px solid var(--border);padding:0 10px;gap:7px;
+  overflow-x:auto;align-items:center;scrollbar-width:none;z-index:200;
+}
 #btn-row.visible{display:flex}
+#btn-row::-webkit-scrollbar{display:none}
 #stream-btns{display:flex;gap:6px;align-items:center;flex-shrink:0}
-.s-btn{display:inline-flex;align-items:center;gap:5px;padding:0 13px;height:34px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;transition:all var(--t) var(--ease)}
-.s-btn.active{background:var(--red-dim);color:var(--text)}
-.row-divider{width:1px;height:24px;background:var(--border);margin:0 2px}
-.r-btn{padding:0 12px;height:34px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;transition:all var(--t) var(--ease)}
-#embed-shimmer,#loading,#sw-banner,#err-panel,#pb-bar,#sc-overlay{ /* keep your existing styles */ }
+.s-btn{
+  display:inline-flex;align-items:center;gap:5px;padding:0 13px;height:34px;
+  background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+  color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;
+  transition:all var(--t) var(--ease);flex-shrink:0;
+}
+.s-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25)}
+.s-btn.active{background:var(--red-dim);border-color:var(--red);color:var(--text)}
+.row-divider{width:1px;height:24px;background:var(--border);margin:0 2px;flex-shrink:0}
+#row-controls{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.r-btn{
+  padding:0 12px;height:34px;background:var(--surface2);border:1px solid var(--border2);
+  border-radius:8px;color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;
+  transition:all var(--t) var(--ease);white-space:nowrap;
+}
+.r-btn:hover{color:var(--text)}
+#qual-sel{
+  height:34px;background:var(--surface2);border:1px solid var(--border2);
+  border-radius:8px;color:var(--dim);font-size:12px;padding:0 10px;cursor:pointer;
+}
+#qual-sel.hidden{display:none}
+
+@media(max-width:480px){
+  #auto-btn span{display:none}
+  #auto-btn{padding:6px 10px}
+  .r-btn{padding:0 8px;font-size:11px}
+  .s-btn{padding:0 9px;font-size:11px}
+}
 </style>
 </head>
 <body>
 <div id="app">
   <div id="stage">
-    <!-- Auto Switch Button -->
     <button id="auto-btn" title="Auto switch to best working stream">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.058 11H1M12 3v2m0 16v2m9-9H15M4.938 14.5A8 8 0 0012 21"/>
+        <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.058 11H1M12 3v2m0 16v2m9-9H15"/>
+        <path d="M4.938 14.5A8 8 0 0012 21"/>
       </svg>
       <span>Auto</span>
     </button>
 
-    <div id="init-ph"><p>Initializing…</p></div>
+    <div id="init-ph">
+      <div class="spinner"></div>
+      <p>Initializing…</p>
+    </div>
+
     <div id="player-host"></div>
+
     <div id="embed-host">
       <div id="embed-shimmer">
         <span class="sh-icon">📡</span>
         <span class="sh-text">Connecting…</span>
         <div class="sh-track"><div class="sh-fill" id="sh-fill"></div></div>
       </div>
-      <iframe id="embed-frame" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads" allowfullscreen></iframe>
+      <iframe id="embed-frame"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope"
+        referrerpolicy="no-referrer-when-downgrade"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads"
+        allowfullscreen></iframe>
       <div id="embed-err">
         <div class="ee-icon" id="ee-icon">📡</div>
         <div class="ee-title" id="ee-title">Stream not working</div>
         <div class="ee-msg" id="ee-msg">We couldn't load this stream.</div>
         <div class="ee-acts">
           <button type="button" class="ee-btn primary" id="ee-retry-btn">↺ Try Again</button>
-          <button type="button" class="ee-btn sec" id="ee-next" style="display:none">Next Source</button>
+          <button type="button" class="ee-btn sec" id="ee-next">Next Source</button>
         </div>
       </div>
     </div>
 
     <div id="live-badge"><span class="live-dot"></span><span id="live-lbl">LIVE</span></div>
     <div id="loading"><div class="spinner"></div><div id="load-txt">Loading stream…</div></div>
-    <div id="sw-banner"><span class="sw-dot"></span><span id="sw-txt">Auto-switching stream…</span></div>
-    <div id="err-panel"> <!-- your error panel --> </div>
-    <div id="pb-bar"> <!-- your controls --> </div>
-    <div id="g-hint"></div>
+    <div id="sw-banner"><span class="sw-dot"></span><span id="sw-txt">Switching stream…</span></div>
+
+    <div id="err-panel">
+      <div id="err-icon">⚠️</div>
+      <div id="err-title">Stream Error</div>
+      <div id="err-msg">Unable to load this stream.</div>
+      <div id="err-acts">
+        <button type="button" class="ep-btn primary" id="ep-retry">↺ Retry</button>
+        <button type="button" class="ep-btn sec" id="ep-next">Next Source</button>
+      </div>
+    </div>
+
+    <div id="pb-bar">
+      <button id="pb-mute" title="Mute/Unmute">🔊</button>
+      <input id="pb-vol" type="range" min="0" max="100" value="100" title="Volume">
+      <span id="pb-spacer"></span>
+      <select id="pb-quality" title="Quality"></select>
+    </div>
+
+    <div id="g-hint"><div class="gh-inner" id="g-hint-text"></div></div>
     <div id="toast"></div>
-    <div id="sc-overlay"> <!-- shortcuts --> </div>
+
+    <div id="sc-overlay">
+      <div class="sc-box">
+        <h3>⌨️ Keyboard Shortcuts</h3>
+        <div class="sc-row"><span>Next stream</span><span class="sc-key">N</span></div>
+        <div class="sc-row"><span>Auto switch</span><span class="sc-key">A</span></div>
+        <div class="sc-row"><span>Mute / Unmute</span><span class="sc-key">M</span></div>
+        <div class="sc-row"><span>Fullscreen</span><span class="sc-key">F</span></div>
+        <div class="sc-row"><span>Refresh stream</span><span class="sc-key">R</span></div>
+        <div class="sc-row"><span>This help</span><span class="sc-key">?</span></div>
+        <button id="sc-close">Close</button>
+      </div>
+    </div>
   </div>
 
   <div id="btn-row">
@@ -106,8 +308,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
     <div class="row-divider"></div>
     <div id="row-controls">
       <select id="qual-sel" class="hidden"><option value="-1">Auto</option></select>
-      <button type="button" class="r-btn" id="btn-refresh">Refresh</button>
-      <button type="button" class="r-btn" id="btn-fullscreen">Full</button>
+      <button type="button" class="r-btn" id="btn-refresh">↺ Refresh</button>
+      <button type="button" class="r-btn" id="btn-fullscreen">⛶ Full</button>
       <button type="button" class="r-btn" id="btn-pip">PiP</button>
       <button type="button" class="r-btn" id="btn-help">?</button>
     </div>
@@ -115,97 +317,518 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
 </div>
 
 <script>
-// ==================== Your existing SP code (shortened for clarity) ====================
 const SP = (() => {
-  // ... (keep all your existing CFG, GA, D, Perf, safe(), etc.)
+  /* ── Config ───────────────────────────────────────────────── */
+  const CFG = {
+    // Add your stream sources here. Each entry:
+    //   type : 'hls' | 'dash' | 'embed'
+    //   url  : stream URL (HLS/DASH) or embed page URL
+    //   name : display name
+    //   icon : emoji or short label
+    streams: [
+      // Examples – replace with real URLs:
+      // { type:'hls',  url:'https://example.com/live/stream.m3u8', name:'HD Stream 1', icon:'📺' },
+      // { type:'dash', url:'https://example.com/live/stream.mpd',  name:'HD Stream 2', icon:'📡' },
+      // { type:'embed',url:'https://example.com/embed/channel',    name:'Embed 1',     icon:'🌐' },
+    ],
+    embedDelay: 5000,    // ms to wait before showing embed-error button
+    autoRetryDelay: 8000,// ms before auto-retrying a failed stream
+    savedKey: 'sp_last_idx',
+  };
 
-  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  /* ── GA helper ────────────────────────────────────────────── */
+  const GA = {
+    send(name, params={}) {
+      try { gtag('event', name, params); } catch(_){}
+    }
+  };
 
-  // Device-aware reordering
+  /* ── DOM refs ─────────────────────────────────────────────── */
+  const D = {
+    stage:       document.getElementById('stage'),
+    initPh:      document.getElementById('init-ph'),
+    playerHost:  document.getElementById('player-host'),
+    embedHost:   document.getElementById('embed-host'),
+    embedShim:   document.getElementById('embed-shimmer'),
+    embedFrame:  document.getElementById('embed-frame'),
+    embedErr:    document.getElementById('embed-err'),
+    eeIcon:      document.getElementById('ee-icon'),
+    eeTitle:     document.getElementById('ee-title'),
+    eeMsg:       document.getElementById('ee-msg'),
+    eeRetry:     document.getElementById('ee-retry-btn'),
+    eeNext:      document.getElementById('ee-next'),
+    liveBadge:   document.getElementById('live-badge'),
+    loading:     document.getElementById('loading'),
+    loadTxt:     document.getElementById('load-txt'),
+    swBanner:    document.getElementById('sw-banner'),
+    swTxt:       document.getElementById('sw-txt'),
+    errPanel:    document.getElementById('err-panel'),
+    errIcon:     document.getElementById('err-icon'),
+    errTitle:    document.getElementById('err-title'),
+    errMsg:      document.getElementById('err-msg'),
+    epRetry:     document.getElementById('ep-retry'),
+    epNext:      document.getElementById('ep-next'),
+    pbBar:       document.getElementById('pb-bar'),
+    pbMute:      document.getElementById('pb-mute'),
+    pbVol:       document.getElementById('pb-vol'),
+    pbQuality:   document.getElementById('pb-quality'),
+    gHint:       document.getElementById('g-hint'),
+    gHintText:   document.getElementById('g-hint-text'),
+    toast:       document.getElementById('toast'),
+    scOverlay:   document.getElementById('sc-overlay'),
+    scClose:     document.getElementById('sc-close'),
+    autoBtnEl:   document.getElementById('auto-btn'),
+    btnRow:      document.getElementById('btn-row'),
+    streamBtns:  document.getElementById('stream-btns'),
+    qualSel:     document.getElementById('qual-sel'),
+    btnRefresh:  document.getElementById('btn-refresh'),
+    btnFull:     document.getElementById('btn-fullscreen'),
+    btnPip:      document.getElementById('btn-pip'),
+    btnHelp:     document.getElementById('btn-help'),
+  };
+
+  /* ── State ────────────────────────────────────────────────── */
+  let streams    = [];
+  let curIdx     = 0;
+  let jwInstance = null;
+  let muted      = false;
+  let volume     = 100;
+  let embedTimer = null;
+  let retryTimer = null;
+  let toastTimer = null;
+  let hintTimer  = null;
+
+  /* ── Utilities ────────────────────────────────────────────── */
+  const isIOS = () =>
+    /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  function safe(fn, fallback=null) {
+    try { return fn(); } catch(e) { console.warn(e); return fallback; }
+  }
+
+  function show(el) { el && el.classList.add('visible'); }
+  function hide(el) { el && el.classList.remove('visible'); }
+
+  function toast(msg, dur=2400) {
+    D.toast.textContent = msg;
+    D.toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => D.toast.classList.remove('show'), dur);
+  }
+
+  function hint(msg, dur=900) {
+    D.gHintText.textContent = msg;
+    D.gHint.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => D.gHint.classList.remove('show'), dur);
+  }
+
+  function showLoading(msg='Loading stream…') {
+    D.loadTxt.textContent = msg;
+    show(D.loading);
+  }
+  function hideLoading() { hide(D.loading); }
+
+  function showErr(icon='⚠️', title='Stream Error', msg='Unable to load this stream.') {
+    D.errIcon.textContent = icon;
+    D.errTitle.textContent = title;
+    D.errMsg.textContent   = msg;
+    show(D.errPanel);
+    hide(D.loading);
+    hide(D.liveBadge);
+  }
+  function hideErr() { hide(D.errPanel); }
+
+  function showSwBanner(msg='Switching stream…') {
+    D.swTxt.textContent = msg;
+    show(D.swBanner);
+    setTimeout(() => hide(D.swBanner), 2500);
+  }
+
+  /* ── Device-aware stream ordering ────────────────────────── */
   function reorderStreamsForDevice(list) {
     if (!list.length) return [];
     if (isIOS()) {
       return [
         ...list.filter(s => s.type === 'hls'),
         ...list.filter(s => s.type === 'embed'),
-        ...list.filter(s => s.type !== 'hls' && s.type !== 'embed')
-      ];
-    } else {
-      return [
-        ...list.filter(s => s.type === 'dash'),
-        ...list.filter(s => s.type === 'hls'),
-        ...list.filter(s => s.type === 'embed'),
-        ...list.filter(s => !['dash','hls','embed'].includes(s.type))
+        ...list.filter(s => s.type !== 'hls' && s.type !== 'embed'),
       ];
     }
+    return [
+      ...list.filter(s => s.type === 'dash'),
+      ...list.filter(s => s.type === 'hls'),
+      ...list.filter(s => s.type === 'embed'),
+      ...list.filter(s => !['dash','hls','embed'].includes(s.type)),
+    ];
   }
 
   function getNextPreferredIndex(current) {
     if (!streams.length) return 0;
     let next = (current + 1) % streams.length;
     if (isIOS()) {
-      let attempts = 0;
-      while (attempts < streams.length) {
-        if (streams[next] && (streams[next].type === 'hls' || streams[next].type === 'embed')) return next;
+      for (let i = 0; i < streams.length; i++) {
+        const s = streams[next];
+        if (s && (s.type === 'hls' || s.type === 'embed')) return next;
         next = (next + 1) % streams.length;
-        attempts++;
       }
     }
     return next;
   }
 
-  // NEW: Auto Switch Function
-  function autoSwitchToBestStream() {
-    if (!streams.length) {
-      toast("No streams available");
-      return;
-    }
-    const nextIdx = getNextPreferredIndex(curIdx);
-    if (nextIdx === curIdx && streams.length === 1) {
-      toast("Only one stream available");
-      return;
-    }
-    GA.send('auto_switch_clicked', {from_index: curIdx+1, to_index: nextIdx+1, trigger: 'button'});
-    switchNext('auto_button', nextIdx);
-    toast(`Switched to ${lbl(nextIdx).name}`);
+  /* ── Stream label helper ──────────────────────────────────── */
+  function lbl(idx) {
+    const s = streams[idx];
+    if (!s) return { name: 'Stream', icon: '📡' };
+    return { name: s.name || `Stream ${idx+1}`, icon: s.icon || '📡' };
   }
 
-  // Load streams with device ordering
+  /* ── Load streams (extend CFG.streams for dynamic fetch) ──── */
   async function loadStreams() {
-    // ... your existing logic ...
-    let result = [];
-    // fill result with mora + embed ...
-    const ordered = reorderStreamsForDevice(result);
-    return ordered;
+    // Static list from config. To fetch dynamically, replace with:
+    //   const res = await fetch('/api/streams'); return reorderStreamsForDevice(await res.json());
+    const raw = CFG.streams.length ? CFG.streams : getDemoStreams();
+    return reorderStreamsForDevice(raw);
   }
 
-  // switchNext (updated)
+  // Demo streams so the player renders something out-of-the-box
+  function getDemoStreams() {
+    return [
+      {
+        type: 'hls',
+        url:  'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+        name: 'Demo HLS',
+        icon: '📺',
+      },
+      {
+        type:  'embed',
+        url:   'https://www.youtube.com/embed/live_stream?channel=UC295-Dw0tDd6es7TB_2EV-A&autoplay=1',
+        name:  'Demo Embed',
+        icon:  '🌐',
+      },
+    ];
+  }
+
+  /* ── Build stream buttons ─────────────────────────────────── */
+  function buildBtns(list) {
+    D.streamBtns.innerHTML = '';
+    list.forEach((s, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 's-btn' + (i === curIdx ? ' active' : '');
+      btn.dataset.idx = i;
+      btn.innerHTML = `<span>${s.icon||'📡'}</span><span>${s.name||'Stream '+(i+1)}</span>`;
+      btn.addEventListener('click', () => {
+        if (i === curIdx) { refreshStream(); return; }
+        GA.send('stream_btn_click', { index: i+1, name: s.name });
+        go(i);
+      });
+      D.streamBtns.appendChild(btn);
+    });
+    D.btnRow.classList.add('visible');
+    updateBtnHighlight();
+  }
+
+  function updateBtnHighlight() {
+    D.streamBtns.querySelectorAll('.s-btn').forEach((b, i) => {
+      b.classList.toggle('active', i === curIdx);
+    });
+    safe(() => localStorage.setItem(CFG.savedKey, curIdx));
+  }
+
+  /* ── JW Player ────────────────────────────────────────────── */
+  function destroyJW() {
+    if (jwInstance) {
+      safe(() => jwInstance.remove());
+      jwInstance = null;
+    }
+    D.playerHost.innerHTML = '';
+    D.playerHost.style.display = 'none';
+  }
+
+  function playJW(url, type) {
+    destroyJW();
+    hideEmbedHost();
+
+    D.playerHost.style.display = 'block';
+    showLoading();
+    hideErr();
+
+    const container = document.createElement('div');
+    D.playerHost.appendChild(container);
+
+    try {
+      jwInstance = jwplayer(container).setup({
+        file: url,
+        type: type === 'hls' ? 'hls' : 'dash',
+        width:  '100%',
+        height: '100%',
+        autostart: true,
+        mute: muted,
+        volume: volume,
+        controls: false,   // we use our own bar
+        primary: type === 'hls' ? 'html5' : 'html5',
+        hlshtml: true,
+        stretching: 'uniform',
+      });
+
+      jwInstance.on('ready', () => {
+        hideLoading();
+        hideErr();
+        show(D.liveBadge);
+      });
+
+      jwInstance.on('play', () => { hideLoading(); hideErr(); });
+
+      jwInstance.on('error', (e) => {
+        console.warn('JW error', e);
+        GA.send('stream_error', { index: curIdx+1, type, code: e.code });
+        handleStreamError('JW player error: ' + (e.message || 'unknown'));
+      });
+
+      jwInstance.on('levels', (e) => buildQualityMenu(e.levels));
+      jwInstance.on('levelsChanged', (e) => syncQualityMenu(e.currentLevel));
+
+      // Volume sync
+      D.pbVol.value = volume;
+      D.pbMute.textContent = muted ? '🔇' : '🔊';
+
+    } catch(err) {
+      console.error('JW setup failed', err);
+      handleStreamError('Player setup failed');
+    }
+  }
+
+  /* ── Quality menu ─────────────────────────────────────────── */
+  function buildQualityMenu(levels) {
+    [D.qualSel, D.pbQuality].forEach(sel => {
+      sel.innerHTML = '<option value="-1">Auto</option>';
+      levels.forEach((l, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = l.label || (l.height ? l.height+'p' : 'Level '+i);
+        sel.appendChild(opt);
+      });
+      sel.classList.remove('hidden');
+    });
+  }
+
+  function syncQualityMenu(idx) {
+    [D.qualSel, D.pbQuality].forEach(sel => { sel.value = idx; });
+  }
+
+  function setQuality(idx) {
+    if (jwInstance) safe(() => jwInstance.setCurrentQuality(idx));
+  }
+
+  /* ── Embed (iframe) player ────────────────────────────────── */
+  function hideEmbedHost() {
+    D.embedHost.classList.remove('active');
+    D.embedFrame.classList.remove('ready');
+    D.embedFrame.src = 'about:blank';
+    D.embedShim.classList.remove('hidden');
+    hide(D.embedErr);
+    clearTimeout(embedTimer);
+  }
+
+  function playEmbed(url) {
+    destroyJW();
+    hideEmbedHost();
+
+    D.embedHost.classList.add('active');
+    showLoading('Connecting…');
+    hideErr();
+    hide(D.liveBadge);
+
+    D.embedFrame.src = url;
+    D.embedFrame.onload = () => {
+      D.embedFrame.classList.add('ready');
+      D.embedShim.classList.add('hidden');
+      hideLoading();
+      show(D.liveBadge);
+      // Hide shimmer-based error button after load
+    };
+
+    // Show "next source" fallback after delay
+    clearTimeout(embedTimer);
+    embedTimer = setTimeout(() => {
+      if (!D.embedFrame.classList.contains('ready')) {
+        D.eeMsg.textContent = "If the stream isn't showing, try another source.";
+        show(D.embedErr);
+        D.embedShim.classList.add('hidden');
+        hideLoading();
+      }
+    }, CFG.embedDelay);
+  }
+
+  /* ── Core navigation ──────────────────────────────────────── */
+  function go(idx) {
+    if (!streams.length) { showErr('📭','No Streams','No streams have been configured.'); return; }
+    idx = ((idx % streams.length) + streams.length) % streams.length;
+    curIdx = idx;
+    updateBtnHighlight();
+
+    const s = streams[idx];
+    GA.send('stream_play', { index: idx+1, name: s.name, type: s.type });
+
+    D.initPh.style.display = 'none';
+    hide(D.errPanel);
+    hide(D.liveBadge);
+
+    clearTimeout(retryTimer);
+
+    if (s.type === 'embed') {
+      playEmbed(s.url);
+    } else {
+      playJW(s.url, s.type);
+    }
+  }
+
   function switchNext(trigger='button', forcedNext=null) {
-    if(!streams.length) return;
+    if (!streams.length) return;
     const nextIdx = forcedNext !== null ? forcedNext : getNextPreferredIndex(curIdx);
-    // ... existing GA and go() ...
+    GA.send('stream_switch', { trigger, from: curIdx+1, to: nextIdx+1 });
+    showSwBanner(`Switching to ${lbl(nextIdx).icon} ${lbl(nextIdx).name}…`);
     go(nextIdx);
+  }
+
+  function autoSwitchToBestStream() {
+    if (!streams.length) { toast('No streams available'); return; }
+    if (streams.length === 1) { toast('Only one stream — refreshing…'); refreshStream(); return; }
+    const nextIdx = getNextPreferredIndex(curIdx);
+    GA.send('auto_switch_clicked', { from: curIdx+1, to: nextIdx+1 });
+    switchNext('auto_button', nextIdx);
     toast(`${lbl(nextIdx).icon} ${lbl(nextIdx).name}`);
   }
 
-  // ... rest of your code (playStream, go, etc.) remains the same ...
+  function refreshStream() {
+    GA.send('stream_refresh', { index: curIdx+1 });
+    toast('↺ Refreshing…');
+    go(curIdx);
+  }
 
-  // Init
+  /* ── Error handling ───────────────────────────────────────── */
+  function handleStreamError(detail='') {
+    hideLoading();
+    const s = streams[curIdx];
+    showErr('⚠️', 'Stream Error', `Could not play "${s?.name||'stream'}". ${detail}`);
+    // Auto-retry after delay
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => {
+      if (streams.length > 1) {
+        switchNext('auto_retry');
+      } else {
+        refreshStream();
+      }
+    }, CFG.autoRetryDelay);
+  }
+
+  /* ── Volume & Mute ────────────────────────────────────────── */
+  function setVolume(v) {
+    volume = Math.max(0, Math.min(100, v));
+    muted = volume === 0;
+    D.pbVol.value = volume;
+    D.pbMute.textContent = muted ? '🔇' : '🔊';
+    if (jwInstance) safe(() => { jwInstance.setVolume(volume); jwInstance.setMute(muted); });
+  }
+
+  function toggleMute() {
+    muted = !muted;
+    D.pbMute.textContent = muted ? '🔇' : '🔊';
+    if (jwInstance) safe(() => jwInstance.setMute(muted));
+    hint(muted ? '🔇 Muted' : '🔊 Unmuted');
+  }
+
+  /* ── Fullscreen ───────────────────────────────────────────── */
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      D.stage.requestFullscreen && D.stage.requestFullscreen();
+    } else {
+      document.exitFullscreen && document.exitFullscreen();
+    }
+  }
+
+  /* ── Picture-in-Picture ───────────────────────────────────── */
+  async function togglePiP() {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        // JW doesn't expose its video directly; try to find it
+        const vid = D.playerHost.querySelector('video');
+        if (vid && document.pictureInPictureEnabled) {
+          await vid.requestPictureInPicture();
+        } else {
+          toast('PiP not supported for this stream');
+        }
+      }
+    } catch(e) {
+      toast('PiP unavailable');
+    }
+  }
+
+  /* ── Shortcuts overlay ────────────────────────────────────── */
+  function showShortcuts() { show(D.scOverlay); }
+  function hideShortcuts() { hide(D.scOverlay); }
+
+  /* ── Keyboard shortcuts ───────────────────────────────────── */
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
+    switch(e.key.toLowerCase()) {
+      case 'n': switchNext('keyboard'); break;
+      case 'a': autoSwitchToBestStream(); break;
+      case 'm': toggleMute(); break;
+      case 'f': toggleFullscreen(); break;
+      case 'r': refreshStream(); break;
+      case '?': showShortcuts(); break;
+      case 'escape': hideShortcuts(); break;
+      case 'arrowup':   e.preventDefault(); setVolume(volume+10); hint(`🔊 ${volume}%`); break;
+      case 'arrowdown': e.preventDefault(); setVolume(volume-10); hint(`🔊 ${volume}%`); break;
+    }
+  });
+
+  /* ── Event listeners ──────────────────────────────────────── */
+  D.autoBtnEl.addEventListener('click', autoSwitchToBestStream);
+  D.btnRefresh.addEventListener('click', refreshStream);
+  D.btnFull.addEventListener('click', toggleFullscreen);
+  D.btnPip.addEventListener('click', togglePiP);
+  D.btnHelp.addEventListener('click', showShortcuts);
+  D.scClose.addEventListener('click', hideShortcuts);
+  D.scOverlay.addEventListener('click', e => { if (e.target === D.scOverlay) hideShortcuts(); });
+
+  D.epRetry.addEventListener('click', refreshStream);
+  D.epNext.addEventListener('click', () => switchNext('err_panel'));
+  D.eeRetry.addEventListener('click', () => go(curIdx));
+  D.eeNext.addEventListener('click', () => switchNext('embed_err'));
+
+  D.pbMute.addEventListener('click', toggleMute);
+  D.pbVol.addEventListener('input', () => setVolume(+D.pbVol.value));
+
+  D.qualSel.addEventListener('change', () => setQuality(+D.qualSel.value));
+  D.pbQuality.addEventListener('change', () => setQuality(+D.pbQuality.value));
+
+  /* ── Init ─────────────────────────────────────────────────── */
   (async () => {
     streams = await loadStreams();
-    if (streams.length) buildBtns(streams);
 
-    // Attach Auto Button
-    document.getElementById('auto-btn').addEventListener('click', autoSwitchToBestStream);
+    if (!streams.length) {
+      D.initPh.style.display = 'none';
+      showErr('📭', 'No Streams Configured', 'Add your stream URLs to CFG.streams in the script.');
+      return;
+    }
 
-    // ... rest of your button listeners ...
-    await go(savedIdx || 0);
+    buildBtns(streams);
+
+    const savedIdx = safe(() => {
+      const v = parseInt(localStorage.getItem(CFG.savedKey), 10);
+      return isFinite(v) && v >= 0 && v < streams.length ? v : 0;
+    }, 0);
+
+    await go(savedIdx);
   })();
 
-  return {
-    switchNext, refresh, go, autoSwitchToBestStream, // expose if needed
-    // ... other returns
-  };
+  return { go, switchNext, refresh: refreshStream, autoSwitch: autoSwitchToBestStream };
 })();
 </script>
 </body>
