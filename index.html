@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Stream Player</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.jwplayer.com/libraries/IDzF9Zmk.js"></script>
+<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-Y5EVJ9NQ5B"></script>
+<script>
+/* GA Setup */
+window.dataLayer=window.dataLayer||[];
+function gtag(){dataLayer.push(arguments);}
+gtag('js',new Date());
+gtag('config','G-Y5EVJ9NQ5B',{send_page_view:true,transport_type:'beacon'});
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --red:#e5181a;--red-dim:rgba(229,24,26,0.16);--red-hover:#ff2d2f;
+  --bg:#090909;--surface:#141414;--surface2:#1c1c1c;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#ffffff;--dim:rgba(255,255,255,0.55);--faint:rgba(255,255,255,0.28);
+  --green:#22c55e;--amber:#f59e0b;
+  --font:'DM Sans',system-ui,sans-serif;--mono:'DM Mono',monospace;
+  --r:9px;--t:.18s;--ease:cubic-bezier(.4,0,.2,1);
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
+#app{display:flex;flex-direction:column;width:100%;height:100%;position:fixed;inset:0}
+#stage{position:relative;flex:1;background:#000;overflow:hidden}
+#player-host,#embed-host{position:absolute;inset:0;width:100%;height:100%}
+#player-host{background:#000;z-index:2;display:none}
+#embed-host{z-index:3;display:none;flex-direction:column;background:#000}
+#embed-host.active{display:flex}
+
+/* Top Right Auto Button */
+#auto-btn{
+  position:absolute;top:12px;right:14px;z-index:50;
+  display:flex;align-items:center;gap:6px;
+  padding:6px 14px;height:36px;
+  background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.15);
+  border-radius:100px;color:#fff;font-size:12px;font-weight:600;
+  cursor:pointer;backdrop-filter:blur(12px);transition:all .2s;
+  user-select:none;
+}
+#auto-btn:hover{background:rgba(229,24,26,0.9);border-color:var(--red);}
+#auto-btn svg{width:16px;height:16px}
+
+/* Rest of your existing styles (btn-row, player, etc.) */
+#btn-row{display:none;flex-shrink:0;height:50px;background:var(--surface);border-top:1px solid var(--border);padding:0 10px;gap:7px;overflow-x:auto;align-items:center;scrollbar-width:none;z-index:200}
+#btn-row.visible{display:flex}
+#stream-btns{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.s-btn{display:inline-flex;align-items:center;gap:5px;padding:0 13px;height:34px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;transition:all var(--t) var(--ease)}
+.s-btn.active{background:var(--red-dim);color:var(--text)}
+.row-divider{width:1px;height:24px;background:var(--border);margin:0 2px}
+.r-btn{padding:0 12px;height:34px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--dim);font-size:12px;font-weight:600;cursor:pointer;transition:all var(--t) var(--ease)}
+#embed-shimmer,#loading,#sw-banner,#err-panel,#pb-bar,#sc-overlay{ /* keep your existing styles */ }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <!-- Auto Switch Button -->
+    <button id="auto-btn" title="Auto switch to best working stream">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.058 11H1M12 3v2m0 16v2m9-9H15M4.938 14.5A8 8 0 0012 21"/>
+      </svg>
+      <span>Auto</span>
+    </button>
+
+    <div id="init-ph"><p>Initializing…</p></div>
+    <div id="player-host"></div>
+    <div id="embed-host">
+      <div id="embed-shimmer">
+        <span class="sh-icon">📡</span>
+        <span class="sh-text">Connecting…</span>
+        <div class="sh-track"><div class="sh-fill" id="sh-fill"></div></div>
+      </div>
+      <iframe id="embed-frame" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads" allowfullscreen></iframe>
+      <div id="embed-err">
+        <div class="ee-icon" id="ee-icon">📡</div>
+        <div class="ee-title" id="ee-title">Stream not working</div>
+        <div class="ee-msg" id="ee-msg">We couldn't load this stream.</div>
+        <div class="ee-acts">
+          <button type="button" class="ee-btn primary" id="ee-retry-btn">↺ Try Again</button>
+          <button type="button" class="ee-btn sec" id="ee-next" style="display:none">Next Source</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="live-badge"><span class="live-dot"></span><span id="live-lbl">LIVE</span></div>
+    <div id="loading"><div class="spinner"></div><div id="load-txt">Loading stream…</div></div>
+    <div id="sw-banner"><span class="sw-dot"></span><span id="sw-txt">Auto-switching stream…</span></div>
+    <div id="err-panel"> <!-- your error panel --> </div>
+    <div id="pb-bar"> <!-- your controls --> </div>
+    <div id="g-hint"></div>
+    <div id="toast"></div>
+    <div id="sc-overlay"> <!-- shortcuts --> </div>
+  </div>
+
+  <div id="btn-row">
+    <div id="stream-btns"></div>
+    <div class="row-divider"></div>
+    <div id="row-controls">
+      <select id="qual-sel" class="hidden"><option value="-1">Auto</option></select>
+      <button type="button" class="r-btn" id="btn-refresh">Refresh</button>
+      <button type="button" class="r-btn" id="btn-fullscreen">Full</button>
+      <button type="button" class="r-btn" id="btn-pip">PiP</button>
+      <button type="button" class="r-btn" id="btn-help">?</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== Your existing SP code (shortened for clarity) ====================
+const SP = (() => {
+  // ... (keep all your existing CFG, GA, D, Perf, safe(), etc.)
+
+  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  // Device-aware reordering
+  function reorderStreamsForDevice(list) {
+    if (!list.length) return [];
+    if (isIOS()) {
+      return [
+        ...list.filter(s => s.type === 'hls'),
+        ...list.filter(s => s.type === 'embed'),
+        ...list.filter(s => s.type !== 'hls' && s.type !== 'embed')
+      ];
+    } else {
+      return [
+        ...list.filter(s => s.type === 'dash'),
+        ...list.filter(s => s.type === 'hls'),
+        ...list.filter(s => s.type === 'embed'),
+        ...list.filter(s => !['dash','hls','embed'].includes(s.type))
+      ];
+    }
+  }
+
+  function getNextPreferredIndex(current) {
+    if (!streams.length) return 0;
+    let next = (current + 1) % streams.length;
+    if (isIOS()) {
+      let attempts = 0;
+      while (attempts < streams.length) {
+        if (streams[next] && (streams[next].type === 'hls' || streams[next].type === 'embed')) return next;
+        next = (next + 1) % streams.length;
+        attempts++;
+      }
+    }
+    return next;
+  }
+
+  // NEW: Auto Switch Function
+  function autoSwitchToBestStream() {
+    if (!streams.length) {
+      toast("No streams available");
+      return;
+    }
+    const nextIdx = getNextPreferredIndex(curIdx);
+    if (nextIdx === curIdx && streams.length === 1) {
+      toast("Only one stream available");
+      return;
+    }
+    GA.send('auto_switch_clicked', {from_index: curIdx+1, to_index: nextIdx+1, trigger: 'button'});
+    switchNext('auto_button', nextIdx);
+    toast(`Switched to ${lbl(nextIdx).name}`);
+  }
+
+  // Load streams with device ordering
+  async function loadStreams() {
+    // ... your existing logic ...
+    let result = [];
+    // fill result with mora + embed ...
+    const ordered = reorderStreamsForDevice(result);
+    return ordered;
+  }
+
+  // switchNext (updated)
+  function switchNext(trigger='button', forcedNext=null) {
+    if(!streams.length) return;
+    const nextIdx = forcedNext !== null ? forcedNext : getNextPreferredIndex(curIdx);
+    // ... existing GA and go() ...
+    go(nextIdx);
+    toast(`${lbl(nextIdx).icon} ${lbl(nextIdx).name}`);
+  }
+
+  // ... rest of your code (playStream, go, etc.) remains the same ...
+
+  // Init
+  (async () => {
+    streams = await loadStreams();
+    if (streams.length) buildBtns(streams);
+
+    // Attach Auto Button
+    document.getElementById('auto-btn').addEventListener('click', autoSwitchToBestStream);
+
+    // ... rest of your button listeners ...
+    await go(savedIdx || 0);
+  })();
+
+  return {
+    switchNext, refresh, go, autoSwitchToBestStream, // expose if needed
+    // ... other returns
+  };
+})();
+</script>
+</body>
+</html>
