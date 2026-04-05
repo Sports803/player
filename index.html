@@ -329,15 +329,12 @@ window.addEventListener('unhandledrejection',e=>{
 });
 
 const SP=(()=>{
-/* ══════════════════════════════════════════════════════
- * Config
- * ══════════════════════════════════════════════════════ */
 const CFG={
   FALLBACK_URL:'',
   STORAGE_KEY:'sp_idx',CACHE_PREFIX:'sp_c_',CACHE_TTL:5*60*1000,
   PLAYER_TO:14000,MAX_RETRY:2,CTRL_FADE:3000,GESTURE_T:60,
   EMBED_TO:15000,EMBED_HTO:8000,EMBED_DEAD_PX:50,
-  AUTO_NEXT_DELAY:5000,   // ms before auto-switching to next stream on error
+  AUTO_NEXT_DELAY:5000,
   SANDBOX:'allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads',
   PROXY:[
     u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`,
@@ -353,11 +350,17 @@ const CFG={
   ],
 };
 const lbl=i=>i<CFG.LABELS.length?CFG.LABELS[i]:{name:`Stream ${i+1}`,icon:'📺'};
+
+// Returns label respecting customLabel on stream object
+const streamLabel=i=>{
+  const s=streams[i];
+  if(s&&s.customLabel)return{name:s.customLabel,icon:s.type==='embed'?'📺':lbl(i).icon};
+  return lbl(i);
+};
+
 const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
-/* ══════════════════════════════════════════════════════
- * GA4 Analytics Module
- * ══════════════════════════════════════════════════════ */
+/* ── GA4 ─────────────────────────────────────────────── */
 const GA=(()=>{
   const TID='G-Y5EVJ9NQ5B';
   const _t0=Date.now();
@@ -368,86 +371,21 @@ const GA=(()=>{
   let _milestoneTimer=null;
   let _volTimer=null,_lastVol=-1;
   let _bufferStart=null;
-
-  function _volBucket(v){
-    if(v===0)return'muted';
-    if(v<=25)return'1-25';
-    if(v<=50)return'26-50';
-    if(v<=75)return'51-75';
-    return'76-100';
-  }
+  function _volBucket(v){if(v===0)return'muted';if(v<=25)return'1-25';if(v<=50)return'26-50';if(v<=75)return'51-75';return'76-100';}
   function _sessionSec(){return Math.round((Date.now()-_t0)/1000);}
-  function _visibleSec(){
-    const now=Date.now();
-    const extra=_hidden?0:now-_lastVisibleAt;
-    return Math.round((_visibleMs+extra)/1000);
-  }
-  function _device(){
-    const ua=navigator.userAgent;
-    if(/tablet|ipad/i.test(ua))return'tablet';
-    if(/mobile|android|iphone/i.test(ua))return'mobile';
-    return'desktop';
-  }
-  function _conn(){
-    const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
-    if(!c)return'unknown';
-    return c.effectiveType||c.type||'unknown';
-  }
-  function _dims(){
-    return{
-      stream_index:typeof curIdx!=='undefined'?curIdx+1:0,
-      stream_name:typeof curIdx!=='undefined'?lbl(curIdx).name:'none',
-      adapter_name:typeof curAdapter!=='undefined'?curAdapter||'none':'none',
-      stream_type:typeof curStream!=='undefined'&&curStream?curStream.type||'unknown':'none',
-      app_state:typeof appState!=='undefined'?appState:'idle',
-      session_sec:_sessionSec(),
-      visible_sec:_visibleSec(),
-      device_type:_device(),
-      is_ios:isIOS()?'yes':'no',
-      connection:_conn(),
-    };
-  }
-  function send(eventName,extra={}){
-    try{gtag('event',eventName,{..._dims(),...extra});}catch(e){console.warn('[GA]',eventName,e);}
-  }
-  document.addEventListener('visibilitychange',()=>{
-    const now=Date.now();
-    if(document.hidden){
-      _hidden=true;_visibleMs+=now-_lastVisibleAt;
-      send('tab_hidden',{visible_sec_so_far:_visibleSec(),session_sec:_sessionSec()});
-    }else{
-      _hidden=false;_lastVisibleAt=now;
-      send('tab_visible',{session_sec:_sessionSec()});
-    }
-  });
-  window.addEventListener('beforeunload',()=>{
-    const dur=_sessionSec();
-    const watch=typeof Perf!=='undefined'?Perf.sec():0;
-    send('session_end',{
-      session_sec:dur,visible_sec:_visibleSec(),watch_sec:watch,
-      total_switches:typeof Perf!=='undefined'?Perf.switches:0,
-      total_errors:typeof Perf!=='undefined'?Perf.errors:0,
-      final_stream_index:typeof curIdx!=='undefined'?curIdx+1:0,
-      final_adapter:typeof curAdapter!=='undefined'?curAdapter:'none',
-    });
-    try{navigator.sendBeacon('https://www.google-analytics.com/g/collect',new URLSearchParams({v:'2',tid:TID,cid:'sports803',en:'session_end'}));}catch{}
-  });
-  function _tickMilestone(){
-    if(typeof Perf==='undefined'||!Perf.pStart)return;
-    const sec=Perf.sec();
-    MILESTONES.forEach(m=>{if(!_milestonesSent.has(m)&&sec>=m){_milestonesSent.add(m);send('watch_milestone',{milestone_sec:m,stream_index:curIdx+1,adapter_name:curAdapter});}});
-  }
+  function _visibleSec(){const now=Date.now();const extra=_hidden?0:now-_lastVisibleAt;return Math.round((_visibleMs+extra)/1000);}
+  function _device(){const ua=navigator.userAgent;if(/tablet|ipad/i.test(ua))return'tablet';if(/mobile|android|iphone/i.test(ua))return'mobile';return'desktop';}
+  function _conn(){const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;if(!c)return'unknown';return c.effectiveType||c.type||'unknown';}
+  function _dims(){return{stream_index:typeof curIdx!=='undefined'?curIdx+1:0,stream_name:typeof curIdx!=='undefined'?streamLabel(curIdx).name:'none',adapter_name:typeof curAdapter!=='undefined'?curAdapter||'none':'none',stream_type:typeof curStream!=='undefined'&&curStream?curStream.type||'unknown':'none',app_state:typeof appState!=='undefined'?appState:'idle',session_sec:_sessionSec(),visible_sec:_visibleSec(),device_type:_device(),is_ios:isIOS()?'yes':'no',connection:_conn()};}
+  function send(eventName,extra={}){try{gtag('event',eventName,{..._dims(),...extra});}catch(e){console.warn('[GA]',eventName,e);}}
+  document.addEventListener('visibilitychange',()=>{const now=Date.now();if(document.hidden){_hidden=true;_visibleMs+=now-_lastVisibleAt;send('tab_hidden',{visible_sec_so_far:_visibleSec(),session_sec:_sessionSec()});}else{_hidden=false;_lastVisibleAt=now;send('tab_visible',{session_sec:_sessionSec()});}});
+  window.addEventListener('beforeunload',()=>{const dur=_sessionSec();const watch=typeof Perf!=='undefined'?Perf.sec():0;send('session_end',{session_sec:dur,visible_sec:_visibleSec(),watch_sec:watch,total_switches:typeof Perf!=='undefined'?Perf.switches:0,total_errors:typeof Perf!=='undefined'?Perf.errors:0,final_stream_index:typeof curIdx!=='undefined'?curIdx+1:0,final_adapter:typeof curAdapter!=='undefined'?curAdapter:'none'});try{navigator.sendBeacon('https://www.google-analytics.com/g/collect',new URLSearchParams({v:'2',tid:TID,cid:'sports803',en:'session_end'}));}catch{}});
+  function _tickMilestone(){if(typeof Perf==='undefined'||!Perf.pStart)return;const sec=Perf.sec();MILESTONES.forEach(m=>{if(!_milestonesSent.has(m)&&sec>=m){_milestonesSent.add(m);send('watch_milestone',{milestone_sec:m,stream_index:curIdx+1,adapter_name:curAdapter});}});}
   function startMilestones(){clearInterval(_milestoneTimer);_milestonesSent.clear();_milestoneTimer=setInterval(_tickMilestone,1000);}
   function stopMilestones(){clearInterval(_milestoneTimer);_milestoneTimer=null;}
-  function trackVolume(newVal,trigger='slider'){
-    clearTimeout(_volTimer);
-    _volTimer=setTimeout(()=>{const bucket=_volBucket(newVal);if(bucket===_lastVol)return;_lastVol=bucket;send('volume_changed',{volume_level:newVal,volume_bucket:bucket,trigger_source:trigger});},800);
-  }
+  function trackVolume(newVal,trigger='slider'){clearTimeout(_volTimer);_volTimer=setTimeout(()=>{const bucket=_volBucket(newVal);if(bucket===_lastVol)return;_lastVol=bucket;send('volume_changed',{volume_level:newVal,volume_bucket:bucket,trigger_source:trigger});},800);}
   function attachVideo(v,adapterName){
-    v.addEventListener('play',()=>{
-      if(!_firstPlayAt){_firstPlayAt=Date.now();send('first_play',{time_to_play_ms:_firstPlayAt-_t0,adapter_name:adapterName});}
-      send('video_play',{adapter_name:adapterName,current_time:Math.round(v.currentTime)});
-    });
+    v.addEventListener('play',()=>{if(!_firstPlayAt){_firstPlayAt=Date.now();send('first_play',{time_to_play_ms:_firstPlayAt-_t0,adapter_name:adapterName});}send('video_play',{adapter_name:adapterName,current_time:Math.round(v.currentTime)});});
     v.addEventListener('pause',()=>{send('video_pause',{adapter_name:adapterName,current_time:Math.round(v.currentTime),duration:Math.round(v.duration)||0});});
     v.addEventListener('waiting',()=>{_bufferStart=Date.now();send('video_buffering_start',{adapter_name:adapterName,current_time:Math.round(v.currentTime)});});
     v.addEventListener('playing',()=>{if(_bufferStart){const ms=Date.now()-_bufferStart;send('video_buffering_end',{adapter_name:adapterName,buffer_duration_ms:ms});_bufferStart=null;}});
@@ -567,7 +505,7 @@ function setLoading(on,txt='Loading stream…',pct){
   if(on)appState='loading';
 }
 
-/* ── Smart next-index helper (device-aware) ──────────── */
+/* ── Smart next-index helper ─────────────────────────── */
 function getNextPreferredIndex(current){
   if(!streams.length)return 0;
   let next=(current+1)%streams.length;
@@ -598,8 +536,7 @@ function startAutoNextSwitch(){
     if(appState==='error'){
       if(streams.length>1){
         GA.send('auto_next_triggered',{trigger:'timeout',retry_count:retryCount});
-        hideError();
-        switchNext('auto_error');
+        hideError();switchNext('auto_error');
       }else{
         GA.send('auto_fallback_triggered',{trigger:'timeout',retry_count:retryCount});
         hideError();showFallback();
@@ -623,7 +560,6 @@ function showError(rawErr=''){
   D.errIco.textContent=f.ico;D.errTtl.textContent=f.ttl;D.errMsg.textContent=f.msg;
   if(f.hint){D.errHint.textContent=f.hint;D.errHint.classList.add('on');}else D.errHint.classList.remove('on');
   const rem=CFG.MAX_RETRY-retryCount;
-  // Show retry count + auto-switch message (Code 2 style)
   if(streams.length>1){
     D.errRetries.textContent=rem>0
       ?`${rem} attempt${rem!==1?'s':''} remaining — auto-switching in ${CFG.AUTO_NEXT_DELAY/1000}s`
@@ -635,11 +571,7 @@ function showError(rawErr=''){
   }
   D.btnRetry.disabled=rem<=0;
   D.errPanel.classList.add('active');appState='error';setLoading(false);
-  GA.send('error_shown',{
-    error_title:f.ttl,error_raw:rawErr.slice(0,150),
-    retries_remaining:rem,stream_index:curIdx+1,
-    adapter_name:curAdapter,watch_sec_before_error:Perf.sec(),
-  });
+  GA.send('error_shown',{error_title:f.ttl,error_raw:rawErr.slice(0,150),retries_remaining:rem,stream_index:curIdx+1,adapter_name:curAdapter,watch_sec_before_error:Perf.sec()});
   startAutoNextSwitch();
 }
 function hideError(){
@@ -651,7 +583,7 @@ function hideError(){
 /* ── Live badge ──────────────────────────────────────── */
 function setBadge(s){
   if(!s){D.liveBadge.classList.remove('on');return;}
-  D.liveLbl.textContent=lbl(curIdx).name;D.liveBadge.classList.add('on');
+  D.liveLbl.textContent=streamLabel(curIdx).name;D.liveBadge.classList.add('on');
 }
 
 /* ── Quality selector ────────────────────────────────── */
@@ -668,10 +600,7 @@ function hideQuality(){D.qualSel.classList.add('hidden');qualH=null;}
 D.qualSel.addEventListener('change',e=>{
   const v=parseInt(e.target.value,10);
   const newLabel=D.qualSel.options[D.qualSel.selectedIndex]?.text||'Auto';
-  if(qualH){
-    GA.send('quality_changed',{from_quality:_curQualLabel,to_quality:newLabel,adapter_name:curAdapter});
-    _curQualLabel=newLabel;qualH(v);toast('Quality changed');
-  }
+  if(qualH){GA.send('quality_changed',{from_quality:_curQualLabel,to_quality:newLabel,adapter_name:curAdapter});_curQualLabel=newLabel;qualH(v);toast('Quality changed');}
 });
 
 /* ── Stream buttons ──────────────────────────────────── */
@@ -680,16 +609,41 @@ function buildBtns(list){
   D.streamBtns.innerHTML='';btnEls=[];
   if(!list||!list.length){D.btnRow.classList.remove('visible');return;}
   list.forEach((s,i)=>{
-    const L=lbl(i),btn=document.createElement('button');
+    // Use customLabel if present, else fall back to label system
+    const L=lbl(i);
+    const label=s.customLabel||L.name;
+    const icon=s.type==='embed'?'📺':L.icon;
+
+    const btn=document.createElement('button');
     btn.type='button';btn.className='s-btn';btn.dataset.i=i;
-    btn.innerHTML=`<span class="dot"></span><span class="s-icon">${L.icon}</span><span>${L.name}</span>`;
+    btn.title=label;
+    btn.innerHTML=`<span class="dot"></span><span class="s-icon">${icon}</span><span>${label}</span>`;
+
+    // Right-click → open in new tab
+    btn.addEventListener('contextmenu',e=>{
+      e.preventDefault();
+      if(s.url&&safe(s.url))window.open(s.url,'_blank','noopener,noreferrer');
+    });
+
+    // Long press (600ms) → open in new tab (mobile)
+    let _lpt=null;
+    btn.addEventListener('touchstart',()=>{
+      _lpt=setTimeout(()=>{if(s.url&&safe(s.url))window.open(s.url,'_blank','noopener,noreferrer');},600);
+    },{passive:true});
+    btn.addEventListener('touchend',()=>clearTimeout(_lpt),{passive:true});
+    btn.addEventListener('touchmove',()=>clearTimeout(_lpt),{passive:true});
+
     btn.addEventListener('click',()=>{
-      if(+btn.dataset.i!==curIdx){
-        GA.send('stream_button_clicked',{target_index:i+1,target_name:L.name,from_index:curIdx+1,trigger_source:'button'});
-        SP.go(+btn.dataset.i);
+      const idx=+btn.dataset.i;
+      if(idx!==curIdx){
+        GA.send('stream_button_clicked',{target_index:idx+1,target_name:label,from_index:curIdx+1,trigger_source:'button'});
+        toast(`Switching to ${label}…`);
+        SP.go(idx);
       }
     });
-    D.streamBtns.appendChild(btn);btnEls.push(btn);
+
+    D.streamBtns.appendChild(btn);
+    btnEls.push(btn);
   });
   D.btnRow.classList.add('visible');
 }
@@ -841,22 +795,35 @@ const EmbedMgr=(()=>{
     D.eeOverlay.classList.add('active');
   }
   function _hideEE(){D.eeOverlay.classList.remove('active');}
+
+  // Auto-switch to next global stream on exhaustion, not direct fallback
   function _allExhausted(){
     GA.send('embed_exhausted',{source_count:_s.length,attempts:_i+1,embed_url:(_s[0]||'').slice(0,80)});
-    _doneSh(false);EmbedMgr.unmount();showFallback();
+    _doneSh(false);
+    EmbedMgr.unmount();
+    if(streams.length>1){
+      showSwBanner('Switching to next stream…');
+      setTimeout(()=>{if(appState!=='playing')switchNext('auto_embed_error');},1500);
+    }else{
+      showFallback('embed_exhausted');
+    }
   }
+
   function _load(idx,gen){
     if(typeof gen!=='undefined'&&gen!==_g)return;
     _i=idx;_hideEE();const url=_s[idx];
     if(!url){GA.send('embed_no_source',{source_index:idx});_showEE('🔗','No source','This source is missing.',false,true);return;}
     clearTimeout(_lt);clearTimeout(_ht);_startSh();_t0=Date.now();
     GA.send('embed_attempt',{source_index:idx,source_count:_s.length,embed_url:url.slice(0,80)});
+
+    // Clone iframe for a clean reload with no state carryover
     const fr=D.embedFrame.cloneNode(false);fr.id='embed-frame';
     fr.setAttribute('sandbox',CFG.SANDBOX);
     fr.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope');
     fr.setAttribute('referrerpolicy','no-referrer-when-downgrade');
     D.embedFrame.replaceWith(fr);D.embedFrame=fr;_fr=fr;
     _wire(gen??_g);fr.classList.remove('visible');fr.src=url;
+
     _lt=setTimeout(()=>{
       if(_i!==idx)return;
       _doneSh(false);
@@ -868,6 +835,7 @@ const EmbedMgr=(()=>{
       }else{_allExhausted();}
     },CFG.EMBED_TO);
   }
+
   function _wire(gen){
     const fr=_fr;
     fr.addEventListener('load',function ol(){fr.removeEventListener('load',ol);if(_g!==gen)return;
@@ -886,6 +854,7 @@ const EmbedMgr=(()=>{
       }else{_allExhausted();}
     },{once:true});
   }
+
   function _hc(gen){
     if(_g!==gen)return;const fr=_fr;if(!fr)return;
     try{const doc=fr.contentDocument||fr.contentWindow?.document;
@@ -900,6 +869,7 @@ const EmbedMgr=(()=>{
     }catch{}
     _ht=setTimeout(()=>_hc(gen),20000);
   }
+
   return{
     mount(srcs,gen){
       _s=Array.isArray(srcs)?srcs.filter(safe):[];_i=0;_g=gen;
@@ -1032,13 +1002,33 @@ const ADAPTERS=[
 /* ── Playback orchestration ──────────────────────────── */
 async function playStream(stream,gen){
   hideError();clearHost();D.initPh.style.display='none';
+
   if(stream.type==='embed'){
     setLoading(false);
-    EmbedMgr.mount(stream.embedUrls?.length?stream.embedUrls:[stream.url],gen);
-    setBadge(stream);setOverlay(false);
-    GA.send('stream_play_started',{stream_type:'embed',stream_index:curIdx+1,stream_name:lbl(curIdx).name});
+
+    // Fade iframe before mounting new source
+    D.embedFrame.classList.remove('visible');
+
+    // Mount with ONLY this stream's single URL — no reuse of previous embed list
+    EmbedMgr.mount(
+      stream.embedUrls?.length ? stream.embedUrls : [stream.url],
+      gen
+    );
+
+    setBadge(stream);
+    setOverlay(false);
+    setActivBtn(curIdx);
+
+    const label=stream.customLabel||streamLabel(curIdx).name;
+    GA.send('stream_play_started',{
+      stream_type:'embed',
+      stream_index:curIdx+1,
+      stream_name:label,
+      embed_url:(stream.url||'').slice(0,80),
+    });
     return;
   }
+
   D.host.style.display='block';
   const cands=ADAPTERS
     .filter(a=>{try{return a.supports(stream);}catch{return false;}})
@@ -1046,7 +1036,7 @@ async function playStream(stream,gen){
   let ok=false,lastE='',okAdapter='';
   const total=cands.length;let ai=0;
   const playT0=Date.now();
-  GA.send('stream_play_attempt',{stream_type:stream.type,stream_index:curIdx+1,stream_name:lbl(curIdx).name,has_drm:!!(stream.drm),adapter_count:total});
+  GA.send('stream_play_attempt',{stream_type:stream.type,stream_index:curIdx+1,stream_name:streamLabel(curIdx).name,has_drm:!!(stream.drm),adapter_count:total});
   for(const adapter of cands){
     if(gen!==playGen)return;
     ai++;
@@ -1084,7 +1074,7 @@ async function playStream(stream,gen){
     setOverlay(needOv);if(needOv)D.pbBar.classList.add('on');
     setLoading(false);setBadge(stream);setActivBtn(curIdx);
     GA.startMilestones();
-    GA.send('stream_play_started',{stream_type:stream.type,adapter_name:okAdapter,stream_index:curIdx+1,stream_name:lbl(curIdx).name,time_to_play_ms:Date.now()-playT0,has_drm:!!(stream.drm)});
+    GA.send('stream_play_started',{stream_type:stream.type,adapter_name:okAdapter,stream_index:curIdx+1,stream_name:streamLabel(curIdx).name,time_to_play_ms:Date.now()-playT0,has_drm:!!(stream.drm)});
   }
 }
 
@@ -1104,22 +1094,44 @@ function showFallback(reason='all_failed'){
   GA.send('fallback_shown',{reason,has_fallback_url:!!fs,stream_index:curIdx+1,total_errors:Perf.errors,session_sec:Math.round((Date.now()-Perf.t0)/1000)});
 }
 
-/* ── Stream loading ──────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+ * loadStreams — each embed URL is its own stream object
+ * ══════════════════════════════════════════════════════ */
 async function loadStreams(){
   const result=[];
   setLoading(true,'Finding best stream…',10);
   GA.send('streams_load_start',{mora_count:moraP.length,embed_count:embedP.length});
   const t0=Date.now();
+
+  // Resolve mora (m3u8/mpd) streams — unchanged
   const results=await Promise.allSettled(moraP.map(url=>resolveStream(url)));
   const mora=[];
   results.forEach((r,i)=>{
     if(r.status==='fulfilled'&&r.value)mora.push({...r.value,originalUrl:moraP[i]});
     else{console.warn(`mora[${i}] failed:`,r.reason?.message);GA.send('stream_resolve_fail',{stream_index:i,reason:r.reason?.message||'unknown'});}
   });
-  if(embedP.length)result.push({type:'embed',url:embedP[0],embedUrls:embedP,originalUrl:embedP[0]});
+
+  // Each embed URL → its own isolated stream object
+  embedP.forEach((url,index)=>{
+    result.push({
+      type:'embed',
+      url:url,
+      embedUrls:[url],       // single URL, no grouping
+      originalUrl:url,
+      customLabel:`Stream ${index+1}`,
+    });
+  });
+
   if(isIOS()){const hls=mora.filter(s=>s.type==='hls'),oth=mora.filter(s=>s.type!=='hls'&&s.type!=='dash');result.unshift(...hls,...oth);}
   else result.unshift(...mora);
-  GA.send('streams_load_complete',{total_streams:result.length,hls_count:result.filter(s=>s.type==='hls').length,dash_count:result.filter(s=>s.type==='dash').length,embed_count:result.filter(s=>s.type==='embed').length,resolve_ms:Date.now()-t0});
+
+  GA.send('streams_load_complete',{
+    total_streams:result.length,
+    hls_count:result.filter(s=>s.type==='hls').length,
+    dash_count:result.filter(s=>s.type==='dash').length,
+    embed_count:result.filter(s=>s.type==='embed').length,
+    resolve_ms:Date.now()-t0,
+  });
   return result;
 }
 
@@ -1127,15 +1139,15 @@ async function loadStreams(){
 function switchNext(trigger='button'){
   if(!streams.length)return;
   const nextIdx=getNextPreferredIndex(curIdx);
-  GA.send('stream_switched',{from_index:curIdx+1,to_index:nextIdx+1,from_name:lbl(curIdx).name,to_name:lbl(nextIdx).name,trigger_source:trigger,watch_sec_before_switch:Perf.sec()});
+  GA.send('stream_switched',{from_index:curIdx+1,to_index:nextIdx+1,from_name:streamLabel(curIdx).name,to_name:streamLabel(nextIdx).name,trigger_source:trigger,watch_sec_before_switch:Perf.sec()});
   Perf.switches++;
   go(nextIdx);
-  toast(`${lbl(nextIdx).icon} ${lbl(nextIdx).name}`);
+  toast(`${streamLabel(nextIdx).icon} ${streamLabel(nextIdx).name}`);
 }
 
 function refresh(trigger='button'){
   if(!curStream)return;
-  GA.send('stream_refreshed',{stream_index:curIdx+1,stream_name:lbl(curIdx).name,stream_type:curStream.type,trigger_source:trigger,watch_sec_before_refresh:Perf.sec()});
+  GA.send('stream_refreshed',{stream_index:curIdx+1,stream_name:streamLabel(curIdx).name,stream_type:curStream.type,trigger_source:trigger,watch_sec_before_refresh:Perf.sec()});
   if(curStream.type!=='embed')cDel(CFG.CACHE_PREFIX+curStream.originalUrl);
   if(curStream.type==='embed'){EmbedMgr.retry();toast('↺ Reloading…');return;}
   go(curIdx);toast('↺ Refreshed');
@@ -1146,6 +1158,13 @@ async function go(idx){
   if(!streams.length)return;
   if(curStream&&Perf.pStart){GA.send('stream_play_ended',{stream_index:curIdx+1,watch_sec:Perf.sec(),adapter_name:curAdapter});}
   idx=Math.max(0,Math.min(idx,streams.length-1));
+
+  // Show switching toast only when changing from an existing stream (not initial load)
+  if(curStream&&streams[idx]){
+    const label=streams[idx].customLabel||streamLabel(idx).name;
+    toast(`Switching to ${label}…`);
+  }
+
   curIdx=idx;curStream=streams[idx];
   const gen=++playGen;Perf.goT=Date.now();Perf.pStart=null;retryCount=0;
   D.btnRefresh.disabled=true;setActivBtn(idx);
@@ -1197,7 +1216,7 @@ document.addEventListener('keydown',e=>{
   if(!isNaN(n)&&n>=1&&n<=streams.length){
     e.preventDefault();
     GA.send('keyboard_shortcut',{key:String(n),action:'select_stream',target_index:n});
-    go(n-1);toast(`${lbl(n-1).icon} ${lbl(n-1).name}`);
+    go(n-1);toast(`${streamLabel(n-1).icon} ${streamLabel(n-1).name}`);
   }
   if(D.stage.classList.contains('has-ov')){
     if(e.key==='ArrowUp'){e.preventDefault();const nv=Math.min(100,parseInt(D.volSl.value,10)+5);GA.send('keyboard_shortcut',{key:'ArrowUp',action:'volume_up',new_volume:nv});D.volSl.value=String(nv);D.volSl.dispatchEvent(new Event('input'));}
@@ -1268,7 +1287,6 @@ function handleErrorFallback(){
   try{const s=parseInt(localStorage.getItem(CFG.STORAGE_KEY),10);if(!isNaN(s)&&s>=0&&s<streams.length){savedIdx=s;GA.send('saved_stream_restored',{saved_index:s+1});}}catch{}
   await go(savedIdx);
 
-  // Wire up all buttons via addEventListener (no inline onclick)
   D.eeRetryBtn.addEventListener('click',()=>EmbedMgr.retry());
   D.eeNext.addEventListener('click',()=>EmbedMgr.nextSource());
   D.eeFallback.addEventListener('click',()=>SP.goFallback());
