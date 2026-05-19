@@ -1,5 +1,3 @@
-<!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -335,6 +333,7 @@ const CFG={
   EMBED_TO:15000,EMBED_HTO:8000,EMBED_DEAD_PX:50,
   AUTO_NEXT_DELAY:5000,
   SANDBOX:'allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads',
+  ALLOW:'autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope',
   PROXY:[
     u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
@@ -579,18 +578,12 @@ function extractCK(html) {
 
 /**
  * Extract { streamUrl, drm } (or { isEmbed, streamUrl, embedUrls }) from HTML.
- * New patterns vs original:
- *   N1. var/const/let config = { file:"…", drm:{…} } JSON blob
- *   N2. Named manifest variable list (active-only, expanded)
- *   N3. JWPlayer .setup({ file:"…" })
- *   N4. All searches run on comment-stripped HTML
  */
 function extractMfst(html) {
   const active = _stripComments(html);
   let url = null;
   let drm = null;
 
-  // N1. Parse a JSON-style config variable
   const configVarRe = /(?:var|const|let)\s+config\s*=\s*({[\s\S]{0,2000}?})\s*;/;
   const cvM = configVarRe.exec(active);
   if (cvM) {
@@ -612,10 +605,9 @@ function extractMfst(html) {
           }
         }
       }
-    } catch (_) { /* not valid JSON — continue */ }
+    } catch (_) {}
   }
 
-  // N2. Named manifest variable (active-only, expanded list)
   if (!url) {
     const VN = [
       'manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url',
@@ -647,14 +639,12 @@ function extractMfst(html) {
     }
   }
 
-  // N3. JWPlayer .setup({ file:"https://…mpd" … })
   if (!url) {
     const jwSetup = /\.setup\s*\(\s*{[^}]{0,2000}\bfile\s*:\s*["'`](https?:\/\/[^"'`\s]+)["'`]/i;
     const jwM = jwSetup.exec(active);
     if (jwM && safe(jwM[1])) url = jwM[1];
   }
 
-  // Original patterns — now run on active (comment-stripped) HTML
   if (!url) {
     let m;
     m = active.match(/\.(?:load|loadSource|loadManifest)\s*\(\s*[`'"]([^`'"]+)[`'"]/i);
@@ -696,7 +686,6 @@ function extractMfst(html) {
     if (m && safe(m[1])) url = m[1];
   }
 
-  // Inline iframe / embed fallback (scan original html, not active, to keep src intact)
   if (!url) {
     const ir = /<iframe[^>]+src=["']([^"']+)['"]/gi;
     const embs = [];
@@ -710,7 +699,6 @@ function extractMfst(html) {
 
   if (!url) return null;
 
-  // Inline !! DRM separator  (url!!keyId:key)
   if (url.includes('!!')) {
     const si  = url.indexOf('!!');
     const mu  = url.slice(0, si);
@@ -724,7 +712,6 @@ function extractMfst(html) {
     }
   }
 
-  // Extract DRM if not yet found — prefer active code, fall back to full page
   if (!drm) {
     drm = extractCK(active);
     if (!drm) drm = extractCK(html);
@@ -811,13 +798,6 @@ async function resolveKafeizhibo(url){
 }
 
 /* ── Kafeizhibo recording resolver ── */
-/**
- * Resolves a Kafeizhibo recording page URL to an HLS stream.
- * Matches URLs like: https://www.kafeizhibo.com/recording/12345
- *                 or https://www.kafeizhibo.com/pc/recording/12345
- * Calls the CORS-enabled recordings API directly (no proxy needed).
- * Response shape: { data: { replays: [{ video_url: "https://...m3u8" }] } }
- */
 async function resolveKafeizhiboRecording(url) {
   const m = url.match(/kafeizhibo\.com\/(?:pc\/)?recording\/(\d+)/);
   if (!m) return null;
@@ -849,7 +829,6 @@ async function resolveKafeizhiboRecording(url) {
       return null;
     }
 
-    // Pick the first replay with a valid .m3u8 URL
     for (const replay of replays) {
       const videoUrl = replay?.video_url;
       if (videoUrl && /\.m3u8([?&#]|$)/i.test(videoUrl) && safe(videoUrl)) {
@@ -896,7 +875,6 @@ async function resolveStream(url){
     return r;
   }
 
-  // ── Kafeizhibo recording pages ──────────────────────────────────────────
   if (/kafeizhibo\.com\/(?:pc\/)?recording\/\d+/.test(url)) {
     const resolved = await resolveKafeizhiboRecording(url);
     if (resolved) {
@@ -908,7 +886,6 @@ async function resolveStream(url){
       });
       return resolved;
     }
-    // Fallback to embed mode if the API fails or returns no usable URL
     const fallback = { type: 'embed', url, embedUrls: [url], originalUrl: url };
     cSet(ck, fallback);
     GA.send('stream_resolve_success', {
@@ -918,7 +895,6 @@ async function resolveStream(url){
     });
     return fallback;
   }
-  // ── End Kafeizhibo recording ────────────────────────────────────────────
 
   if(url.includes('!!')){
     const _si=url.indexOf('!!');
@@ -1015,10 +991,26 @@ const EmbedMgr=(()=>{
   function _showEE(icon,ttl,msg,canNext,sourcesExhausted=false){D.eeIcon.textContent=icon;D.eeTitle.textContent=ttl;D.eeMsg.textContent=msg;D.eeNext.style.display=(canNext&&_s.length>1)?'':'none';D.eeFallback.style.display=sourcesExhausted?'':'none';D.eeOverlay.classList.add('active');}
   function _hideEE(){D.eeOverlay.classList.remove('active');}
   function _allExhausted(){GA.send('embed_exhausted',{source_count:_s.length,attempts:_i+1,embed_url:(_s[0]||'').slice(0,80)});_doneSh(false);EmbedMgr.unmount();if(streams.length>1){showSwBanner('Switching to next stream…');setTimeout(()=>{if(appState!=='playing')switchNext('auto_embed_error');},1500);}else{showFallback('embed_exhausted');}}
-  function _load(idx,gen){if(typeof gen!=='undefined'&&gen!==_g)return;_i=idx;_hideEE();const url=_s[idx];if(!url){GA.send('embed_no_source',{source_index:idx});_showEE('🔗','No source','This source is missing.',false,true);return;}clearTimeout(_lt);clearTimeout(_ht);_startSh();_t0=Date.now();GA.send('embed_attempt',{source_index:idx,source_count:_s.length,embed_url:url.slice(0,80)});const fr=D.embedFrame.cloneNode(false);fr.id='embed-frame';fr.setAttribute('sandbox',CFG.SANDBOX);fr.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope');fr.setAttribute('referrerpolicy','no-referrer-when-downgrade');D.embedFrame.replaceWith(fr);D.embedFrame=fr;_fr=fr;_wire(gen??_g);fr.classList.remove('visible');fr.src=url;_lt=setTimeout(()=>{if(_i!==idx)return;_doneSh(false);GA.send('embed_timeout',{source_index:idx,embed_url:url.slice(0,80),elapsed_ms:Date.now()-_t0});const hasMore=_s.length>1&&idx<_s.length-1;if(hasMore){_showEE('⏱️','Stream not working','The stream took too long to load.',true,false);setTimeout(()=>{if(_i===idx){showSwBanner();_load(idx+1);}},2000);}else{_allExhausted();}},CFG.EMBED_TO);}
+  function _applyFrameAttrs(fr){
+    // Always enforce sandbox and allow on every embed iframe — defence in depth
+    fr.setAttribute('sandbox', CFG.SANDBOX);
+    fr.setAttribute('allow', CFG.ALLOW);
+    fr.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+    fr.setAttribute('allowfullscreen', '');
+  }
+  function _load(idx,gen){if(typeof gen!=='undefined'&&gen!==_g)return;_i=idx;_hideEE();const url=_s[idx];if(!url){GA.send('embed_no_source',{source_index:idx});_showEE('🔗','No source','This source is missing.',false,true);return;}clearTimeout(_lt);clearTimeout(_ht);_startSh();_t0=Date.now();GA.send('embed_attempt',{source_index:idx,source_count:_s.length,embed_url:url.slice(0,80)});const fr=D.embedFrame.cloneNode(false);fr.id='embed-frame';_applyFrameAttrs(fr);D.embedFrame.replaceWith(fr);D.embedFrame=fr;_fr=fr;_wire(gen??_g);fr.classList.remove('visible');fr.src=url;_lt=setTimeout(()=>{if(_i!==idx)return;_doneSh(false);GA.send('embed_timeout',{source_index:idx,embed_url:url.slice(0,80),elapsed_ms:Date.now()-_t0});const hasMore=_s.length>1&&idx<_s.length-1;if(hasMore){_showEE('⏱️','Stream not working','The stream took too long to load.',true,false);setTimeout(()=>{if(_i===idx){showSwBanner();_load(idx+1);}},2000);}else{_allExhausted();}},CFG.EMBED_TO);}
   function _wire(gen){const fr=_fr;fr.addEventListener('load',function ol(){fr.removeEventListener('load',ol);if(_g!==gen)return;clearTimeout(_lt);_doneSh(true);fr.classList.add('visible');hideSwBanner();ThumbMgr.hide();GA.send('embed_load_success',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80),load_ms:Date.now()-_t0});Perf.pStart=Date.now();appState='playing';GA.startMilestones();setHealthDot(curIdx,'green');_ht=setTimeout(()=>_hc(gen),CFG.EMBED_HTO);},{once:true});fr.addEventListener('error',function oe(){fr.removeEventListener('error',oe);if(_g!==gen)return;clearTimeout(_lt);_doneSh(false);setHealthDot(curIdx,'red');GA.send('embed_load_fail',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80),elapsed_ms:Date.now()-_t0});const hasMore=_s.length>1&&_i<_s.length-1;if(hasMore){_showEE('❌','Stream not working','We couldn\'t load this source.',true,false);setTimeout(()=>{showSwBanner('Switching to next stream…');_load(_i+1);},1800);}else{_allExhausted();}},{once:true});}
   function _hc(gen){if(_g!==gen)return;const fr=_fr;if(!fr)return;try{const doc=fr.contentDocument||fr.contentWindow?.document;if(doc&&doc.body){const h=doc.body.scrollHeight||0,title=(doc.title||'').toLowerCase();if(/403|forbidden|denied|blocked|geo/i.test(title)){GA.send('embed_health_warning',{reason:'blocked_title',doc_title:title.slice(0,40)});return;}if(/offline|unavailable|error|not found/i.test(title)){GA.send('embed_health_warning',{reason:'error_title',doc_title:title.slice(0,40)});return;}const hv=doc.querySelectorAll('video').length>0,hc=doc.querySelectorAll('canvas').length>0,hi=doc.querySelectorAll('iframe').length>0;if(!hv&&!hc&&!hi&&h<CFG.EMBED_DEAD_PX){GA.send('embed_health_warning',{reason:'low_body_height',body_height:h});}else{GA.send('embed_health_ok',{has_video:hv,has_canvas:hc,has_iframe:hi,body_height:h});}}}catch{}_ht=setTimeout(()=>_hc(gen),20000);}
-  return{mount(srcs,gen){_s=Array.isArray(srcs)?srcs.filter(safe):[];_i=0;_g=gen;GA.send('embed_mount',{source_count:_s.length,first_url:(_s[0]||'').slice(0,80)});if(!_s.length){showFallback();return;}D.embedHost.classList.add('active');_fr=D.embedFrame;_load(0,gen);},unmount(){clearTimeout(_lt);clearTimeout(_ht);clearInterval(_si);_si=null;_g=-1;D.embedHost.classList.remove('active');D.eeOverlay.classList.remove('active');try{if(_fr)_fr.src='about:blank';}catch{}if(_fr)_fr.classList.remove('visible');_fr=D.embedFrame;D.embedShimmer.classList.remove('hidden');_s=[];_i=0;},retry(){GA.send('embed_retry',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80)});_hideEE();_load(_i,_g);},nextSource(){const n=(_i+1)%_s.length;GA.send('embed_next_source',{from_index:_i,to_index:n,trigger_source:'button'});showSwBanner();_load(n,_g);}};
+  return{mount(srcs,gen){
+    _s=Array.isArray(srcs)?srcs.filter(safe):[];_i=0;_g=gen;
+    GA.send('embed_mount',{source_count:_s.length,first_url:(_s[0]||'').slice(0,80)});
+    if(!_s.length){showFallback();return;}
+    // Enforce sandbox on the initial frame reference before any src is set
+    _applyFrameAttrs(D.embedFrame);
+    D.embedHost.classList.add('active');
+    _fr=D.embedFrame;
+    _load(0,gen);
+  },unmount(){clearTimeout(_lt);clearTimeout(_ht);clearInterval(_si);_si=null;_g=-1;D.embedHost.classList.remove('active');D.eeOverlay.classList.remove('active');try{if(_fr)_fr.src='about:blank';}catch{}if(_fr)_fr.classList.remove('visible');_fr=D.embedFrame;D.embedShimmer.classList.remove('hidden');_s=[];_i=0;},retry(){GA.send('embed_retry',{source_index:_i,embed_url:(_s[_i]||'').slice(0,80)});_hideEE();_load(_i,_g);},nextSource(){const n=(_i+1)%_s.length;GA.send('embed_next_source',{from_index:_i,to_index:n,trigger_source:'button'});showSwBanner();_load(n,_g);}};
 })();
 
 /* ── Adapters ── */
@@ -1062,7 +1054,7 @@ async function playStream(stream,gen){
 }
 
 /* ── Fallback screen ── */
-function showFallback(reason='all_failed'){GA.stopMilestones();clearHost();appState='fallback';setOverlay(false);setBadge(null);ThumbMgr.show();const w=document.createElement('div');w.className='fb-wrap';const fs=CFG.FALLBACK_URL&&safe(CFG.FALLBACK_URL)?CFG.FALLBACK_URL:'';w.innerHTML=`<p class="fb-ttl">⚠ Stream unavailable</p><p>All sources failed. ${fs?'Showing backup channel.':'No backup channel configured.'}</p>${fs?`<iframe src="${fs}" frameborder="0" allowfullscreen sandbox="${CFG.SANDBOX}"></iframe>`:'<p style="color:rgba(255,255,255,.3);margin-top:8px">Set a FALLBACK_URL in the player config to show a backup here.</p>'}<button type="button" onclick="SP.go(0)" style="margin-top:8px;padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">↺ Try Primary Again</button>`;D.host.appendChild(w);D.host.style.display='block';GA.send('fallback_shown',{reason,has_fallback_url:!!fs,stream_index:curIdx+1,total_errors:Perf.errors,session_sec:Math.round((Date.now()-Perf.t0)/1000)});}
+function showFallback(reason='all_failed'){GA.stopMilestones();clearHost();appState='fallback';setOverlay(false);setBadge(null);ThumbMgr.show();const w=document.createElement('div');w.className='fb-wrap';const fs=CFG.FALLBACK_URL&&safe(CFG.FALLBACK_URL)?CFG.FALLBACK_URL:'';w.innerHTML=`<p class="fb-ttl">⚠ Stream unavailable</p><p>All sources failed. ${fs?'Showing backup channel.':'No backup channel configured.'}</p>${fs?`<iframe src="${fs}" frameborder="0" allowfullscreen sandbox="${CFG.SANDBOX}" allow="${CFG.ALLOW}" referrerpolicy="no-referrer-when-downgrade"></iframe>`:'<p style="color:rgba(255,255,255,.3);margin-top:8px">Set a FALLBACK_URL in the player config to show a backup here.</p>'}<button type="button" onclick="SP.go(0)" style="margin-top:8px;padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">↺ Try Primary Again</button>`;D.host.appendChild(w);D.host.style.display='block';GA.send('fallback_shown',{reason,has_fallback_url:!!fs,stream_index:curIdx+1,total_errors:Perf.errors,session_sec:Math.round((Date.now()-Perf.t0)/1000)});}
 
 /* ── loadStreams ── */
 async function loadStreams(){
