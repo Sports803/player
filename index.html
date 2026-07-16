@@ -1,4 +1,4 @@
-<html lang="en">
+ <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -225,7 +225,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
       <iframe id="embed-frame"
         allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope"
         referrerpolicy="no-referrer-when-downgrade"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads"
+        sandbox="allow-forms allow-pointer-lock allow-same-origin allow-scripts allow-top-navigation"
         allowfullscreen></iframe>
       <div id="embed-err">
         <div class="ee-icon" id="ee-icon">📡</div>
@@ -332,7 +332,7 @@ const CFG={
   PLAYER_TO:14000,MAX_RETRY:2,CTRL_FADE:3000,GESTURE_T:60,
   EMBED_TO:15000,EMBED_HTO:8000,EMBED_DEAD_PX:50,
   AUTO_NEXT_DELAY:5000,
-  SANDBOX:'allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-presentation allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-downloads',
+  SANDBOX:'allow-forms allow-pointer-lock allow-same-origin allow-scripts allow-top-navigation',
   ALLOW:'autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share; accelerometer; gyroscope',
   PROXY:[
     u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`,
