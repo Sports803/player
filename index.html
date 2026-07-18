@@ -710,6 +710,16 @@ function extractMfst(html) {
       drm = { keyId: kp.slice(0, ci), key: kp.slice(ci + 1) };
       url = mu;
     }
+  } else if (url.includes('|drmLicense=')) {
+    const parts = url.split('|');
+    const mu = parts[0];
+    const params = new URLSearchParams(parts[1]);
+    const lic = params.get('drmLicense');
+    if (lic && lic.includes(':')) {
+      const ci = lic.indexOf(':');
+      drm = { keyId: lic.slice(0, ci), key: lic.slice(ci + 1) };
+      url = mu;
+    }
   }
 
   if (!drm) {
@@ -922,10 +932,21 @@ async function resolveStream(url){
 
   if(/\.mpd([?&#]|$)/i.test(url)){
     let drm=null;
-    if(drmKP&&drmKP.includes(':')){const sep=drmKP.indexOf(':');drm={keyId:drmKP.slice(0,sep).trim(),key:drmKP.slice(sep+1).trim()};}
-    const r={type:'dash',url,originalUrl:url,...(drm&&{drm})};
-    cSet(ck,r);
-    GA.send('stream_resolve_success',{stream_type:'dash',has_drm:!!drm,resolve_ms:Date.now()-t0,method:'direct'});
+    const urlObj = new URL(url.includes('|') ? url.split('|')[0] : url);
+    const params = new URLSearchParams(url.includes('|') ? url.split('|')[1] : urlObj.search);
+    const lic = params.get('drmLicense');
+    if(lic && lic.includes(':')){
+      const sep = lic.indexOf(':');
+      drm = { keyId: lic.slice(0, sep).trim(), key: lic.slice(sep+1).trim() };
+    }
+    if(!drm && drmKP && drmKP.includes(':')){
+      const sep = drmKP.indexOf(':');
+      drm = { keyId: drmKP.slice(0, sep).trim(), key: drmKP.slice(sep+1).trim() };
+    }
+    const cleanUrl = url.includes('|') ? url.split('|')[0] : url;
+    const r = { type: 'dash', url: cleanUrl, originalUrl: url, ...(drm && { drm }) };
+    cSet(ck, r);
+    GA.send('stream_resolve_success', { stream_type: 'dash', has_drm: !!drm, resolve_ms: Date.now() - t0, method: 'direct' });
     return r;
   }
 
