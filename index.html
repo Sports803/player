@@ -489,7 +489,8 @@ function cDel(k){try{sessionStorage.removeItem(k);}catch{}}
 
 /* ── Stream extraction (SamuraiTV patch v2) ───────────────────────────── */
 function _stripComments(html){let s=html.replace(/<!--[\s\S]*?-->/g,'');s=s.replace(/(?<![:/])\/\/[^
-]*/g,'');return s;}
+
+]*/g,'');return s;}
 function _validKeyPair(keyId,key){if(!keyId||!key)return false;if(keyId.length!==32||key.length!==32)return false;if(keyId==='0'.repeat(32)||key==='0'.repeat(32))return false;if(/^(.)
 1+$/.test(keyId)||/^(.)
 1+$/.test(key))return false;return true;}
