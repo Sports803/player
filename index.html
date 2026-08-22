@@ -428,12 +428,58 @@ function safe(url){if(!url||typeof url!=='string')return false;const t=url.trim(
   const base=t.includes('!!')?t.slice(0,t.indexOf('!!')):t;
   const p=new URL(base);if(!['http:','https:'].includes(p.protocol))return false;if(!p.hostname||p.hostname.length<3)return false;const m=p.hostname.match(/^(\d+)\.(\d+)\./);if(m){const[a,b]=[+m[1],+m[2]];if(a===127||a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168))return false;}return true;}catch{return false;}}
 
+/* ── Direct ClearKey URL support ───────────────────────────────────────────
+ * Some tokenized DASH providers put the ClearKey pair next to the MPD:
+ *   manifest.mpd?|drmScheme=clearkey&drmLicense=<keyId>:<key>
+ * Keep the query string on the MPD request (the token may depend on it), but
+ * extract the pair for the EME adapters. Hex and 16-byte base64 values are
+ * accepted; the adapters receive the normalized 32-character hex form.
+ * ───────────────────────────────────────────────────────────────────────── */
+function normalizeCKPart(value){
+  const raw=String(value??'').trim().replace(/^0x/i,'');
+  if(/^[0-9a-f]{32}$/i.test(raw))return raw.toLowerCase();
+  if(!/^[A-Za-z0-9+/_-]+={0,2}$/.test(raw))return null;
+  try{
+    const b64=raw.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(raw.length/4)*4,'=');
+    const bin=atob(b64);if(bin.length!==16)return null;
+    return [...bin].map(ch=>ch.charCodeAt(0).toString(16).padStart(2,'0')).join('');
+  }catch{return null;}
+}
+function parseClearKeyValue(value){
+  if(!value)return null;
+  if(typeof value==='object'){
+    const keyId=normalizeCKPart(value.keyId||value.kid||value.key_id);
+    const key=normalizeCKPart(value.key||value.k);
+    return keyId&&key&&_validKeyPair(keyId,key)?{keyId,key}:null;
+  }
+  const raw=String(value).trim();
+  if(!raw)return null;
+  if(raw[0]==='{'){
+    try{return parseClearKeyValue(JSON.parse(raw));}catch{}
+  }
+  const sep=raw.indexOf(':');
+  if(sep<1)return null;
+  const keyId=normalizeCKPart(raw.slice(0,sep));
+  const key=normalizeCKPart(raw.slice(sep+1));
+  return keyId&&key&&_validKeyPair(keyId,key)?{keyId,key}:null;
+}
+function clearKeyFromUrl(url){
+  try{
+    const u=new URL(url);
+    const scheme=(u.searchParams.get('drmScheme')||u.searchParams.get('|drmScheme')||'').trim().toLowerCase();
+    const license=u.searchParams.get('drmLicense')||u.searchParams.get('|drmLicense');
+    if(license&&(!scheme||scheme==='clearkey'))return parseClearKeyValue(license);
+  }catch{}
+  return null;
+}
+
 /* ── Params ── */
 function decodeData(){try{const e=new URLSearchParams(location.search).get('data');if(!e)return null;return JSON.parse(atob(e));}catch{return null;}}
 function getP(name){const d=decodeData();if(d&&d[name])return Array.isArray(d[name])?d[name]:[d[name]];return new URLSearchParams(location.search).getAll(name);}
 const moraP=getP('mora').filter(safe);
 const embedP=getP('embed').filter(safe);
 const drmKP=(new URLSearchParams(location.search).get('drmkey')||'').trim();
+const drmLicenseP=(new URLSearchParams(location.search).get('drmLicense')||new URLSearchParams(location.search).get('|drmLicense')||'').trim();
 const refP=(new URLSearchParams(location.search).get('referer')||'').trim();
 const _qp=new URLSearchParams(location.search);
 const scoreTeam1=(_qp.get('team1')||'').trim();
@@ -926,9 +972,8 @@ async function resolveStream(url){
     const _kp=url.slice(_si+2);
     const _isDash=/\.mpd([?&#]|$)/i.test(_mu);
     const _isHls=/\.m3u8([?&#]|$)/i.test(_mu);
-    if((_isDash||_isHls)&&_kp&&_kp.includes(':')){
-      const _ci=_kp.indexOf(':');
-      const drm={keyId:_kp.slice(0,_ci),key:_kp.slice(_ci+1)};
+    const drm=parseClearKeyValue(_kp);
+    if((_isDash||_isHls)&&drm){
       const type=_isDash?'dash':'hls';
       const r={type,url:_mu,drm,originalUrl:url};
       cSet(ck,r);
@@ -945,8 +990,7 @@ async function resolveStream(url){
   }
 
   if(/\.mpd([?&#]|$)/i.test(url)){
-    let drm=null;
-    if(drmKP&&drmKP.includes(':')){const sep=drmKP.indexOf(':');drm={keyId:drmKP.slice(0,sep).trim(),key:drmKP.slice(sep+1).trim()};}
+    const drm=clearKeyFromUrl(url)||parseClearKeyValue(drmKP)||parseClearKeyValue(drmLicenseP);
     const r={type:'dash',url,originalUrl:url,...(drm&&{drm})};
     cSet(ck,r);
     GA.send('stream_resolve_success',{stream_type:'dash',has_drm:!!drm,resolve_ms:Date.now()-t0,method:'direct'});
@@ -959,7 +1003,8 @@ async function resolveStream(url){
     if(ex.isEmbed){const r={type:'embed',url:ex.streamUrl,embedUrls:ex.embedUrls||[ex.streamUrl],originalUrl:url};cSet(ck,r);GA.send('stream_resolve_success',{stream_type:'embed',embed_count:r.embedUrls.length,resolve_ms:Date.now()-t0,method:'scraped'});return r;}
     let{streamUrl,drm}=ex;
     if(!safe(streamUrl)){GA.send('stream_resolve_fail',{reason:'unsafe_url',resolve_ms:Date.now()-t0});throw new Error('Unsafe URL');}
-    if(!drm&&drmKP&&drmKP.includes(':')){const sep=drmKP.indexOf(':');drm={keyId:drmKP.slice(0,sep).trim(),key:drmKP.slice(sep+1).trim()};}
+    if(!drm)drm=clearKeyFromUrl(streamUrl);
+    if(!drm)drm=parseClearKeyValue(drmKP)||parseClearKeyValue(drmLicenseP);
     const type=/\.m3u8([?&#]|$)/i.test(streamUrl)?'hls':'dash';
     const r={type,url:streamUrl,originalUrl:url,...(drm&&{drm})};
     cSet(ck,r);
@@ -1029,7 +1074,7 @@ const ADAPTERS=[
     init(hid,s){return withTO(new Promise((res,rej)=>{const el=document.createElement('div');el.id=hid+'_jw';document.getElementById(hid).appendChild(el);const p=jwplayer(el.id).setup({file:s.url,type:s.type==='hls'?'hls':'dash',width:'100%',height:'100%',autostart:!isIOS(),mute:isIOS(),hlshtml:true,primary:'html5',image:thumbP||'https://cdn.jwplayer.com/images/6cbPZG9A.png',skin:{name:'netflix'},cast:{},stretching:'uniform',...(s.drm?{drm:{clearkey:{keyId:s.drm.keyId,key:s.drm.key}}}:{})});let done=false;p.on('ready',()=>{if(done)return;done=true;instances.push(p);curPlayer=p;const lv=p.getQualityLevels();if(lv?.length)setQuality(lv.map((l,i)=>({label:l.label||`${l.height}p`,value:i})),(idx)=>p.setCurrentQuality(idx));else hideQuality();p.on('play',()=>GA.send('video_play',{adapter_name:'jwplayer'}));p.on('pause',()=>GA.send('video_pause',{adapter_name:'jwplayer',current_time:Math.round(p.getPosition())}));p.on('buffer',()=>GA.send('video_buffering_start',{adapter_name:'jwplayer',current_time:Math.round(p.getPosition())}));p.on('idle',()=>GA.send('video_jwplayer_idle',{current_time:Math.round(p.getPosition())}));p.on('mute',(e)=>GA.send('volume_changed',{muted:e.mute,adapter_name:'jwplayer',trigger_source:'jwplayer'}));p.on('levelsChanged',(e)=>GA.send('quality_changed',{to_quality:lv[e.currentQuality]?.label||String(e.currentQuality),adapter_name:'jwplayer'}));res();});p.on('error',e=>{if(!done){done=true;rej(new Error(`JWPlayer: ${e.message}`));}});p.on('setupError',e=>{if(!done){done=true;rej(new Error(`JWPlayer Setup: ${e.message}`));}});}));}},
   {name:'shaka',pri:2,supports:()=>true,
     async load(){await loadSc('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.min.js');},
-    init(hid,s){return withTO(new Promise(async(res,rej)=>{let done=false;const D2=fn=>{if(!done){done=true;fn();}};const v=newVid({});document.getElementById(hid).appendChild(v);shaka.polyfill.installAll();if(!shaka.Player.isBrowserSupported())return D2(()=>rej(new Error('Shaka: not supported')));const p=new shaka.Player(v);instances.push(p);curPlayer=v;GA.attachVideo(v,'shaka');p.configure({streaming:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2,fuzzFactor:.5,timeout:30000},bufferingGoal:30,rebufferingGoal:2,ignoreTextStreamFailures:true,jumpLargeGaps:true,stallEnabled:true,stallThreshold:1,stallSkip:.1},manifest:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2},dash:{ignoreMinBufferTime:true}}});p.addEventListener('error',e=>{const c=e.detail?.code||0;GA.send('shaka_error',{error_code:c,adapter_name:'shaka'});D2(()=>rej(new Error(`Shaka: code ${c}`)));});p.addEventListener('buffering',e=>{GA.send(e.detail.buffering?'video_buffering_start':'video_buffering_end',{adapter_name:'shaka'});});if(refP)p.getNetworkingEngine().registerRequestFilter((t,req)=>{req.headers['Referer']=refP;});if(s.drm)p.configure({drm:{clearKeys:{[s.drm.keyId]:s.drm.key}}});try{await p.load(s.url);setTimeout(()=>safePlay(v),100);const tr=p.getVariantTracks().filter(t=>t.type==='variant');const heights=[...new Set(tr.map(t=>t.height||0))].filter(Boolean).sort((a,b)=>a-b);const plyrOpts={};if(heights.length){plyrOpts.quality={default:0,options:[0,...heights],forced:true,onChange:(q)=>{if(q===0){p.configure({abr:{enabled:true}});return;}const track=tr.find(t=>t.height===q);if(track){p.configure({abr:{enabled:false}});p.selectVariantTrack(track,true);}}};plyrOpts.i18n={qualityLabel:{0:'Auto'}};}const pl=wrapPlyr(v,plyrOpts);if(pl){curPlyr=pl;instances.push(pl);}hideQuality();D2(()=>res());}catch(e){D2(()=>rej(new Error(`Shaka: ${e.message}`)));}}));}},
+    init(hid,s){return withTO(new Promise(async(res,rej)=>{let done=false;const D2=fn=>{if(!done){done=true;fn();}};const v=newVid({});document.getElementById(hid).appendChild(v);shaka.polyfill.installAll();if(!shaka.Player.isBrowserSupported())return D2(()=>rej(new Error('Shaka: not supported')));const p=new shaka.Player(v);instances.push(p);curPlayer=v;GA.attachVideo(v,'shaka');p.configure({streaming:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2,fuzzFactor:.5,timeout:30000},bufferingGoal:30,rebufferingGoal:2,ignoreTextStreamFailures:true,stallEnabled:true,stallThreshold:1,stallSkip:.1},manifest:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2},dash:{ignoreMinBufferTime:true}}});p.addEventListener('error',e=>{const c=e.detail?.code||0;GA.send('shaka_error',{error_code:c,adapter_name:'shaka'});D2(()=>rej(new Error(`Shaka: code ${c}`)));});p.addEventListener('buffering',e=>{GA.send(e.detail.buffering?'video_buffering_start':'video_buffering_end',{adapter_name:'shaka'});});if(refP)p.getNetworkingEngine().registerRequestFilter((t,req)=>{req.headers['Referer']=refP;});if(s.drm)p.configure({drm:{clearKeys:{[s.drm.keyId]:s.drm.key}}});try{await p.load(s.url);setTimeout(()=>safePlay(v),100);const tr=p.getVariantTracks().filter(t=>t.type==='variant');const heights=[...new Set(tr.map(t=>t.height||0))].filter(Boolean).sort((a,b)=>a-b);const plyrOpts={};if(heights.length){plyrOpts.quality={default:0,options:[0,...heights],forced:true,onChange:(q)=>{if(q===0){p.configure({abr:{enabled:true}});return;}const track=tr.find(t=>t.height===q);if(track){p.configure({abr:{enabled:false}});p.selectVariantTrack(track,true);}}};plyrOpts.i18n={qualityLabel:{0:'Auto'}};}const pl=wrapPlyr(v,plyrOpts);if(pl){curPlyr=pl;instances.push(pl);}hideQuality();D2(()=>res());}catch(e){D2(()=>rej(new Error(`Shaka: ${e.message}`)));}}));}},
   {name:'hlsjs',pri:3,supports:s=>s.type==='hls',
     async load(){await loadSc('https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js');},
     init(hid,s){return withTO(new Promise((res,rej)=>{if(!Hls.isSupported())return rej(new Error('HLS.js: MSE not supported'));const v=newVid({});document.getElementById(hid).appendChild(v);curPlayer=v;GA.attachVideo(v,'hlsjs');const h=new Hls({enableWorker:true,lowLatencyMode:true,backBufferLength:90,maxBufferLength:30,maxMaxBufferLength:600,fragLoadingTimeOut:20000,fragLoadingMaxRetry:6,manifestLoadingTimeOut:12000,manifestLoadingMaxRetry:4,startFragPrefetch:true,nudgeOffset:.3,nudgeMaxRetry:5,autoStartLoad:true,startPosition:-1});instances.push(h);let done=false;h.on(Hls.Events.FRAG_LOADED,(e,d)=>{GA.send('hls_fragment_loaded',{frag_duration_ms:d.stats?.loading?.end-d.stats?.loading?.start||0,frag_size:d.stats?.total||0,adapter_name:'hlsjs'});});h.on(Hls.Events.LEVEL_SWITCHED,(e,d)=>{GA.send('quality_changed',{to_quality:h.levels[d.level]?.height?`${h.levels[d.level].height}p`:String(d.level),adapter_name:'hlsjs',trigger_source:'auto'});});h.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal){GA.send('hlsjs_fatal_error',{error_type:d.type,error_details:d.details,adapter_name:'hlsjs'});if(!done){if(d.type===Hls.ErrorTypes.NETWORK_ERROR){h.startLoad();return;}if(d.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();return;}done=true;rej(new Error(`HLS.js: ${d.type}/${d.details}`));}}else{GA.send('hlsjs_recoverable_error',{error_type:d.type,error_details:d.details,adapter_name:'hlsjs'});}});h.loadSource(s.url);h.attachMedia(v);h.once(Hls.Events.MANIFEST_PARSED,()=>{if(done)return;done=true;const heights=h.levels.map(l=>l.height||0).filter((val,i,arr)=>val>0&&arr.indexOf(val)===i).sort((a,b)=>a-b);const plyrOpts={};if(heights.length){plyrOpts.quality={default:0,options:[0,...heights],forced:true,onChange:(q)=>{if(q===0){h.currentLevel=-1;return;}const idx=h.levels.findIndex(l=>l.height===q);if(idx>=0)h.currentLevel=idx;}};plyrOpts.i18n={qualityLabel:{0:'Auto'}};}const pl=wrapPlyr(v,plyrOpts);if(pl){curPlyr=pl;instances.push(pl);}hideQuality();safePlay(v);res();});}));}},
@@ -1107,7 +1152,7 @@ function handleErrorFallback(){cancelAutoNextSwitch('user_fallback');GA.send('us
 /* ── Init ── */
 (async()=>{
   ThumbMgr.init();
-  GA.send('session_start',{mora_sources:moraP.length,embed_sources:embedP.length,has_drm_key:!!drmKP,referrer:document.referrer.slice(0,80)||'direct',user_agent:navigator.userAgent.slice(0,120),screen_width:screen.width,screen_height:screen.height,device_pixel_ratio:window.devicePixelRatio||1});
+  GA.send('session_start',{mora_sources:moraP.length,embed_sources:embedP.length,has_drm_key:!!(drmKP||drmLicenseP),referrer:document.referrer.slice(0,80)||'direct',user_agent:navigator.userAgent.slice(0,120),screen_width:screen.width,screen_height:screen.height,device_pixel_ratio:window.devicePixelRatio||1});
   if(!moraP.length&&!embedP.length){D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No stream source provided.</p>';setLoading(false);GA.send('init_no_sources');return;}
   GC.init();streams=await loadStreams();
   if(!streams.length){D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No playable streams found.</p>';showFallback('no_streams');setLoading(false);return;}
