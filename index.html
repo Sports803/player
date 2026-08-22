@@ -476,7 +476,8 @@ function clearKeyFromUrl(url){
 /* ── Params ── */
 function decodeData(){try{const e=new URLSearchParams(location.search).get('data');if(!e)return null;return JSON.parse(atob(e));}catch{return null;}}
 function getP(name){const d=decodeData();if(d&&d[name])return Array.isArray(d[name])?d[name]:[d[name]];return new URLSearchParams(location.search).getAll(name);}
-const moraP=getP('mora').filter(safe);
+function unwrapMora(value){let current=String(value||'').trim();for(let i=0;i<3;i++){try{const parsed=new URL(current,location.href);if(/\/player\/?$/i.test(parsed.pathname)){const nested=parsed.searchParams.get('mora');if(nested&&nested!==current){current=nested;continue;}}}catch{}try{const decoded=decodeURIComponent(current);if(decoded!==current){current=decoded;continue;}}catch{}break;}return current;}
+const moraP=getP('mora').map(unwrapMora).filter(safe);
 const embedP=getP('embed').filter(safe);
 const drmKP=(new URLSearchParams(location.search).get('drmkey')||'').trim();
 const drmLicenseP=(new URLSearchParams(location.search).get('drmLicense')||new URLSearchParams(location.search).get('|drmLicense')||'').trim();
