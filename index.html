@@ -477,9 +477,14 @@ function clearKeyFromUrl(url){
 function decodeData(){try{const e=new URLSearchParams(location.search).get('data');if(!e)return null;return JSON.parse(atob(e));}catch{return null;}}
 function getP(name){const d=decodeData();if(d&&d[name])return Array.isArray(d[name])?d[name]:[d[name]];return new URLSearchParams(location.search).getAll(name);}
 function unwrapMora(value){let current=String(value||'').trim();for(let i=0;i<3;i++){try{const parsed=new URL(current,location.href);if(/\/player\/?$/i.test(parsed.pathname)){const nested=parsed.searchParams.get('mora');if(nested&&nested!==current){current=nested;continue;}}}catch{}try{const decoded=decodeURIComponent(current);if(decoded!==current){current=decoded;continue;}}catch{}break;}return current;}
-const moraP=getP('mora').map(unwrapMora).filter(safe);
+const _params=new URLSearchParams(location.search);
+const CHANNEL_PAGE_BASE='https://livetv.rkda.my.id/channels/';
+function normalizeChannel(value){const name=String(value||'').trim().toLowerCase().replace(/\.html$/i,'');return /^[a-z0-9][a-z0-9_-]{0,79}$/.test(name)?name:null;}
+function channelPageUrl(value){const name=normalizeChannel(value);return name?`${CHANNEL_PAGE_BASE}${encodeURIComponent(name)}.html`:null;}
+const channelP=[...getP('channel'),...getP('source'),...getP('mora').filter(value=>!safe(unwrapMora(value)))].map(channelPageUrl).filter(Boolean);
+const moraP=[...getP('mora').map(unwrapMora).filter(safe),...channelP];
 const embedP=getP('embed').filter(safe);
-const drmKP=(new URLSearchParams(location.search).get('drmkey')||'').trim();
+const drmKP=(_params.get('drmkey')||'').trim();
 const drmLicenseP=(new URLSearchParams(location.search).get('drmLicense')||new URLSearchParams(location.search).get('|drmLicense')||'').trim();
 const refP=(new URLSearchParams(location.search).get('referer')||'').trim();
 const _qp=new URLSearchParams(location.search);
@@ -530,7 +535,7 @@ function setHealthDot(idx,color){const btn=btnEls[idx];if(!btn)return;const dot=
 /* ── Overlay controls ── */
 function setOverlay(on){if(on)D.stage.classList.add('has-ov');else{D.stage.classList.remove('has-ov');D.pbBar.classList.remove('on');clearTimeout(ctrlTimer);}}
 D.stage.addEventListener('mousemove',()=>{if(!D.stage.classList.contains('has-ov'))return;D.pbBar.classList.add('on');clearTimeout(ctrlTimer);if(appState==='playing')ctrlTimer=setTimeout(()=>D.pbBar.classList.remove('on'),CFG.CTRL_FADE);});
-D.volSl.addEventListener('input',e=>{const v=Number(e.target.value)/100;if(curPlyr){try{curPlyr.volume=v;curPlyr.muted=(v===0);}catch{}}else if(curPlayer instanceof HTMLMediaElement){curPlayer.volume=v;curPlayer.muted=(v===0);}Prefs.setSavedVol(Math.round(v*100));Prefs.setSavedMute(v===0);GA.trackVolume(Math.round(v*100),'slider');});
+D.volSl.addEventListener('input',e=>{const v=Number(e.target.value)/100;if(curPlyr){try{curPlyr.volume=v;curPlyr.muted=(v===0);}catch{}}else if(curAdapter==='bitmovin'&&curPlayer){try{curPlayer.setVolume(Math.round(v*100));curPlayer.setMuted(v===0);}catch{}}else if(curPlayer instanceof HTMLMediaElement){curPlayer.volume=v;curPlayer.muted=(v===0);}Prefs.setSavedVol(Math.round(v*100));Prefs.setSavedMute(v===0);GA.trackVolume(Math.round(v*100),'slider');});
 
 /* ── Player cleanup ── */
 function clearHost(){GA.stopMilestones();HealthMon.stop();EmbedMgr.unmount();if(curPlyr){try{curPlyr.destroy();}catch(e){console.warn('[Plyr cleanup]',e);}curPlyr=null;}instances.forEach(p=>{try{if(typeof p.destroy==='function')p.destroy();else if(typeof p.dispose==='function')p.dispose();else if(p instanceof HTMLMediaElement){p.pause();p.src='';p.load();}}catch(e){console.warn('[Cleanup]',e);}});instances=[];D.host.innerHTML='';D.host.style.display='none';curPlayer=null;setOverlay(false);hideQuality();}
@@ -581,6 +586,11 @@ function _validKeyPair(keyId, key) {
  */
 function extractCK(html) {
   const active = _stripComments(html);
+
+  // 0. Channel pages expose explicit hexadecimal variables.
+  const namedId = active.match(/(?:const|let|var)\s+CLEARKEY_ID_HEX\s*=\s*['"]([0-9a-fA-F]{32})['"]/i);
+  const namedKey = active.match(/(?:const|let|var)\s+CLEARKEY_K_HEX\s*=\s*['"]([0-9a-fA-F]{32})['"]/i);
+  if (namedId && namedKey && _validKeyPair(namedId[1], namedKey[1])) return {keyId:namedId[1].toLowerCase(),key:namedKey[1].toLowerCase()};
 
   // 1. Shaka clearKeys: { "keyId32hex": "key32hex" }
   const shakaRe = /clearKeys\s*:\s*{[^}]{0,400}}/gi;
@@ -665,7 +675,7 @@ function extractMfst(html) {
   // N2. Named manifest variable (active-only, expanded list)
   if (!url) {
     const VN = [
-      'manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url',
+      'DASH_URL','dash_url','manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url',
       'youtube_theme_manifestUri',
       'streamUrl','streamURL','stream_url',
       'hlsUrl','hlsURL','hls_url',
@@ -755,7 +765,10 @@ function extractMfst(html) {
     if (embs.length) return { streamUrl: embs[0], drm: null, isEmbed: true, embedUrls: embs };
   }
 
-  if (!url) return null;
+  if(!url) return null;
+
+  // Channel pages may define DASH_URL as a relative URL; resolve it against the page origin.
+  try { if (url && !/^https?:\/\//i.test(url)) url = new URL(url, CHANNEL_PAGE_BASE).href; } catch (_) {}
 
   // Inline !! DRM separator  (url!!keyId:key)
   if (url.includes('!!')) {
@@ -967,6 +980,21 @@ async function resolveStream(url){
   }
   // ── End Kafeizhibo recording ────────────────────────────────────────────
 
+  // Dedicated channel-page scrape: use the same adapter pipeline as direct DASH sources,
+  // but never let an untrusted query value turn into an arbitrary fetch target.
+  if (/^https:\/\/livetv\.rkda\.my\.id\/channels\/[a-z0-9][a-z0-9_-]{0,79}\.html$/i.test(url)) {
+    return withR(async()=>{
+      const html=await fetchProxied(url), ex=extractMfst(html);
+      if(!ex || !ex.streamUrl || !/\.mpd([?&#]|$)/i.test(ex.streamUrl)) throw new Error('Channel stream source not available');
+      const streamUrl=new URL(ex.streamUrl, url).href;
+      if(!safe(streamUrl)) throw new Error('Unsafe channel stream URL');
+      const drm=ex.drm||extractCK(html);
+      if(!drm) throw new Error('Channel ClearKey credentials not found');
+      const r={type:'dash',url:streamUrl,drm,channelScraped:true,originalUrl:url};
+      cSet(ck,r);GA.send('channel_scrape_success',{channel:url.split('/').pop().replace(/\.html$/i,''),stream_type:'dash',has_drm:true,resolve_ms:Date.now()-t0});return r;
+    });
+  }
+
   if(url.includes('!!')){
     const _si=url.indexOf('!!');
     const _mu=url.slice(0,_si);
@@ -1016,6 +1044,8 @@ async function resolveStream(url){
 
 /* ── Script loader ── */
 const _sc=new Map();
+function loadCss(href){if(document.querySelector(`link[href="${href}"]`))return;const l=document.createElement('link');l.rel='stylesheet';l.href=href;document.head.appendChild(l);}
+function hexToBase64(hex){const clean=String(hex||'').replace(/^0x/i,'').replace(/[^0-9a-f]/gi,'');let out='';for(let i=0;i<clean.length;i+=2)out+=String.fromCharCode(parseInt(clean.slice(i,i+2),16));return btoa(out);}
 function loadSc(src){if(_sc.has(src))return _sc.get(src);const p=new Promise((res,rej)=>{if(document.querySelector(`script[src="${src}"]`)){return res();}const s=document.createElement('script');s.src=src;s.async=true;s.onload=res;s.onerror=()=>rej(new Error('Load failed: '+src));document.head.appendChild(s);});_sc.set(src,p);return p;}
 
 /* ── Stream Health Monitor ── */
@@ -1069,6 +1099,9 @@ const EmbedMgr=(()=>{
 
 /* ── Adapters ── */
 const ADAPTERS=[
+  {name:'bitmovin',pri:3,supports:s=>s.type==='dash'&&s.channelScraped,
+    async load(){loadCss('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer-ui.css');await loadSc('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer.js');await loadSc('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer-ui.js');},
+    init(hid,s){return withTO((async()=>{if(!window.bitmovin?.player?.Player)throw new Error('Bitmovin library unavailable');const p=new bitmovin.player.Player(document.getElementById(hid),{key:'74bd3934-7122-4f88-9d5a-6bd058e05d70',playback:{autoplay:true},style:{width:'100%',height:'100%'}});const source={dash:s.url,drm:{clearkey:{LA_URL:'data:application/json;base64,'+btoa(JSON.stringify({keys:[{kty:'oct',kid:hexToBase64(s.drm.keyId),k:hexToBase64(s.drm.key)}],type:'temporary'}))}}};instances.push(p);curPlayer=p;await p.load(source);try{await p.play();}catch(e){if(e?.name!=='NotAllowedError')throw e;}hideQuality();GA.attachVideo(document.getElementById(hid).querySelector('video'),'bitmovin');})());}},
   {name:'native-hls',pri:0,supports:s=>s.type==='hls'&&isIOS(),async load(){},
     init(hid,s){return withTO(new Promise((res,rej)=>{const v=newVid({controls:true,muted:true,playsinline:true});v.src=s.url;document.getElementById(hid).appendChild(v);curPlayer=v;instances.push(v);GA.attachVideo(v,'native-hls');v.addEventListener('loadedmetadata',()=>{safePlay(v);res();},{once:true});v.addEventListener('error',()=>rej(new Error('Native HLS failed')),{once:true});}),20000);}},
   {name:'jwplayer',pri:1,supports:()=>typeof jwplayer!=='undefined',async load(){},
@@ -1134,7 +1167,7 @@ const GC=(()=>{let ts=null;function gh(msg){clearTimeout(gTimer);D.gHint.textCon
 document.addEventListener('keydown',e=>{if(e.target!==document.body)return;const k=e.key.toLowerCase();if(k==='s'){e.preventDefault();GA.send('keyboard_shortcut',{key:'s',action:'switch_stream'});switchNext('keyboard');}if(k==='r'){e.preventDefault();GA.send('keyboard_shortcut',{key:'r',action:'refresh'});refresh('keyboard');}if(k==='f'){e.preventDefault();GA.send('keyboard_shortcut',{key:'f',action:'fullscreen'});SP.toggleFullscreen('keyboard');}if(k==='p'){e.preventDefault();GA.send('keyboard_shortcut',{key:'p',action:'pip'});SP.togglePiP('keyboard');}if(e.key==='?'){e.preventDefault();GA.send('keyboard_shortcut',{key:'?',action:'help'});SP.showHelp();}if(k==='v'&&D.stage.classList.contains('has-ov')){e.preventDefault();const newVol=D.volSl.value==='0'?'100':'0';GA.send('keyboard_shortcut',{key:'v',action:D.volSl.value==='0'?'unmute':'mute'});D.volSl.value=newVol;D.volSl.dispatchEvent(new Event('input'));}const n=parseInt(e.key,10);if(!isNaN(n)&&n>=1&&n<=streams.length){e.preventDefault();GA.send('keyboard_shortcut',{key:String(n),action:'select_stream',target_index:n});go(n-1);toast(`${streamLabel(n-1).icon} ${streamLabel(n-1).name}`);}if(D.stage.classList.contains('has-ov')){if(e.key==='ArrowUp'){e.preventDefault();const nv=Math.min(100,parseInt(D.volSl.value,10)+5);GA.send('keyboard_shortcut',{key:'ArrowUp',action:'volume_up',new_volume:nv});D.volSl.value=String(nv);D.volSl.dispatchEvent(new Event('input'));}if(e.key==='ArrowDown'){e.preventDefault();const nv=Math.max(0,parseInt(D.volSl.value,10)-5);GA.send('keyboard_shortcut',{key:'ArrowDown',action:'volume_down',new_volume:nv});D.volSl.value=String(nv);D.volSl.dispatchEvent(new Event('input'));}}});
 
 /* ── Fullscreen ── */
-function toggleFullscreen(trigger='button'){if(curPlyr){try{if(curPlyr.fullscreen.active){curPlyr.fullscreen.exit();GA.send('fullscreen_exit',{trigger_source:trigger,adapter_name:curAdapter});}else{curPlyr.fullscreen.enter();GA.send('fullscreen_enter',{trigger_source:trigger,adapter_name:curAdapter});}}catch{D.stage.requestFullscreen().catch(()=>toast('Fullscreen not supported'));}return;}if(document.fullscreenElement){document.exitFullscreen().catch(()=>toast('Exit fullscreen failed'));GA.send('fullscreen_exit',{trigger_source:trigger,adapter_name:curAdapter});return;}GA.send('fullscreen_enter',{trigger_source:trigger,adapter_name:curAdapter,stream_type:curStream?.type||'none'});if(curAdapter==='jwplayer'&&curPlayer&&typeof curPlayer.setFullscreen==='function'){curPlayer.setFullscreen(true);return;}if(curStream&&curStream.type==='embed'&&D.embedFrame){if(D.embedFrame.requestFullscreen){D.embedFrame.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));}else if(D.embedFrame.webkitEnterFullscreen){D.embedFrame.webkitEnterFullscreen();}return;}const videoElem=D.stage.querySelector('video');if(videoElem){if(videoElem.requestFullscreen){videoElem.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));return;}else if(videoElem.webkitEnterFullscreen){videoElem.webkitEnterFullscreen();return;}}D.stage.requestFullscreen().catch(()=>toast('Fullscreen not supported on this device'));}
+function toggleFullscreen(trigger='button'){if(curPlyr){try{if(curPlyr.fullscreen.active){curPlyr.fullscreen.exit();GA.send('fullscreen_exit',{trigger_source:trigger,adapter_name:curAdapter});}else{curPlyr.fullscreen.enter();GA.send('fullscreen_enter',{trigger_source:trigger,adapter_name:curAdapter});}}catch{D.stage.requestFullscreen().catch(()=>toast('Fullscreen not supported'));}return;}if(document.fullscreenElement){document.exitFullscreen().catch(()=>toast('Exit fullscreen failed'));GA.send('fullscreen_exit',{trigger_source:trigger,adapter_name:curAdapter});return;}GA.send('fullscreen_enter',{trigger_source:trigger,adapter_name:curAdapter,stream_type:curStream?.type||'none'});if(curAdapter==='bitmovin'&&curPlayer&&typeof curPlayer.setFullscreen==='function'){curPlayer.setFullscreen(true);return;}if(curAdapter==='jwplayer'&&curPlayer&&typeof curPlayer.setFullscreen==='function'){curPlayer.setFullscreen(true);return;}if(curStream&&curStream.type==='embed'&&D.embedFrame){if(D.embedFrame.requestFullscreen){D.embedFrame.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));}else if(D.embedFrame.webkitEnterFullscreen){D.embedFrame.webkitEnterFullscreen();}return;}const videoElem=D.stage.querySelector('video');if(videoElem){if(videoElem.requestFullscreen){videoElem.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));return;}else if(videoElem.webkitEnterFullscreen){videoElem.webkitEnterFullscreen();return;}}D.stage.requestFullscreen().catch(()=>toast('Fullscreen not supported on this device'));}
 
 /* ── PiP ── */
 function togglePiP(trigger='button'){if(curPlyr){try{curPlyr.pip=!curPlyr.pip;GA.send('pip_toggle',{trigger_source:trigger,adapter_name:curAdapter,pip_active:curPlyr.pip});}catch{toast('PiP not available');}return;}if(!curPlayer||!(curPlayer instanceof HTMLVideoElement)){toast('PiP not available for this player');GA.send('pip_fail',{reason:'no_video_element',trigger_source:trigger});return;}if(document.pictureInPictureElement){document.exitPictureInPicture();GA.send('pip_exit',{trigger_source:trigger});}else{curPlayer.requestPictureInPicture().then(()=>GA.send('pip_enter',{trigger_source:trigger,adapter_name:curAdapter})).catch(()=>{toast('PiP not available');GA.send('pip_fail',{reason:'api_error',trigger_source:trigger});});}}
