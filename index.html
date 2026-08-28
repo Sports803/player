@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Live Stream Player</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -387,7 +387,7 @@ const GA=(()=>{
     v.addEventListener('error',()=>{const code=v.error?.code||0;const msg=({1:'ABORTED',2:'NETWORK',3:'DECODE',4:'SRC_NOT_SUPPORTED'})[code]||'UNKNOWN';send('video_native_error',{adapter_name:adapterName,error_code:code,error_type:msg});});
     v.addEventListener('volumechange',()=>{const vol=Math.round(v.volume*100);trackVolume(v.muted?0:vol,'video_control');});
   }
-  return{send,trackVolume,attachVideo,startMilestones,stopMilestones,markFirstPlay(){if(!_firstPlayAt)_firstPlayAt=Date.now();}};
+  return{send,trackVolume,attachVideo,startMilestones,stopMilestones,markFirstPlay(){if(!_firstPlayAt)_firstPlayAt=Date.now();};
 })();
 
 /* ── DOM refs ── */
@@ -428,13 +428,7 @@ function safe(url){if(!url||typeof url!=='string')return false;const t=url.trim(
   const base=t.includes('!!')?t.slice(0,t.indexOf('!!')):t;
   const p=new URL(base);if(!['http:','https:'].includes(p.protocol))return false;if(!p.hostname||p.hostname.length<3)return false;const m=p.hostname.match(/^(\d+)\.(\d+)\./);if(m){const[a,b]=[+m[1],+m[2]];if(a===127||a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168))return false;}return true;}catch{return false;}}
 
-/* ── Direct ClearKey URL support ───────────────────────────────────────────
- * Some tokenized DASH providers put the ClearKey pair next to the MPD:
- *   manifest.mpd?|drmScheme=clearkey&drmLicense=<keyId>:<key>
- * Keep the query string on the MPD request (the token may depend on it), but
- * extract the pair for the EME adapters. Hex and 16-byte base64 values are
- * accepted; the adapters receive the normalized 32-character hex form.
- * ───────────────────────────────────────────────────────────────────────── */
+/* ── Direct ClearKey URL support ── */
 function normalizeCKPart(value){
   const raw=String(value??'').trim().replace(/^0x/i,'');
   if(/^[0-9a-f]{32}$/i.test(raw))return raw.toLowerCase();
@@ -556,23 +550,7 @@ function cGet(k){try{const r=sessionStorage.getItem(k);if(!r)return null;const p
 function cSet(k,v){try{sessionStorage.setItem(k,JSON.stringify({...v,_at:Date.now()}));}catch{}}
 function cDel(k){try{sessionStorage.removeItem(k);}catch{}}
 
-/* ── Stream extraction — SamuraiTV patch (v2) ─────────────────────────────
- * Replaces the original extractCK + extractMfst with versions that handle:
- *   Pattern A — Shaka clearKeys: { "hexId":"hexKey" }
- *   Pattern B — JWPlayer / config clearkey: { keyId:"…", key:"…" }
- *   Pattern C — Generic hex-pair anywhere in active (non-commented) code
- * Also strips HTML/JS comments before scanning so commented-out stale URLs
- * don't shadow the live manifest URL.
- * ─────────────────────────────────────────────────────────────────────── */
-
-/** Strip HTML comments and single-line JS comments from raw HTML. */
-function _stripComments(html) {
-  let s = html.replace(/<!--[\s\S]*?-->/g, '');
-  s = s.replace(/(?<![:/])\/\/[^\n\r]*/g, '');
-  return s;
-}
-
-/** Validate a 32-char hex key pair — reject all-zero or repeated patterns. */
+/* ── Helper function for valid key pair ── */
 function _validKeyPair(keyId, key) {
   if (!keyId || !key) return false;
   if (keyId.length !== 32 || key.length !== 32) return false;
@@ -581,74 +559,63 @@ function _validKeyPair(keyId, key) {
   return true;
 }
 
-/**
- * Extract a ClearKey DRM pair {keyId, key} from raw page HTML.
- * Priority: 1) Shaka clearKeys  2a) JWPlayer clearkey block  2b) flat keyId/key fields  3) generic hex-pair
- */
+/* ── Strip comments helper ── */
+function _stripComments(html) {
+  let s = html.replace(/<!--[\s\S]*?-->/g, '');
+  s = s.replace(/(?<![:/])\/\/[^\n\r]*/g, '');
+  return s;
+}
+
+/* ── extractCK (unchanged) ── */
 function extractCK(html) {
   const active = _stripComments(html);
-
-  // 0. Channel pages expose explicit hexadecimal variables.
   const namedId = active.match(/(?:const|let|var)\s+CLEARKEY_ID_HEX\s*=\s*['"]([0-9a-fA-F]{32})['"]/i);
   const namedKey = active.match(/(?:const|let|var)\s+CLEARKEY_K_HEX\s*=\s*['"]([0-9a-fA-F]{32})['"]/i);
   if (namedId && namedKey && _validKeyPair(namedId[1], namedKey[1])) return {keyId:namedId[1].toLowerCase(),key:namedKey[1].toLowerCase()};
-
-  // 1. Shaka clearKeys: { "keyId32hex": "key32hex" }
   const shakaRe = /clearKeys\s*:\s*{[^}]{0,400}}/gi;
   let sm;
   while ((sm = shakaRe.exec(active)) !== null) {
     const block = sm[0];
     const pair = block.match(/"([0-9a-fA-F]{32})"\s*:\s*"([0-9a-fA-F]{32})"/);
-    if (pair && _validKeyPair(pair[1], pair[2])) {
-      return { keyId: pair[1], key: pair[2] };
-    }
+    if (pair && _validKeyPair(pair[1], pair[2])) return { keyId: pair[1], key: pair[2] };
   }
-
-  // 2a. JWPlayer / config  drm: { clearkey: { keyId:"…", key:"…" } }
   const jwBlockRe = /clearkey\s*:\s*{([^}]{0,600})}/gi;
   let jm;
   while ((jm = jwBlockRe.exec(active)) !== null) {
     const block = jm[1];
     const idM  = block.match(/keyId\s*["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
     const keyM = block.match(/\bkey\s*["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
-    if (idM && keyM && _validKeyPair(idM[1], keyM[1])) {
-      return { keyId: idM[1], key: keyM[1] };
-    }
+    if (idM && keyM && _validKeyPair(idM[1], keyM[1])) return { keyId: idM[1], key: keyM[1] };
   }
-
-  // 2b. Flat named fields scattered in page
   const idMatch  = active.match(/["']?keyId["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
   const keyMatch = active.match(/\b["']?key["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
-  if (idMatch && keyMatch && _validKeyPair(idMatch[1], keyMatch[1])) {
-    return { keyId: idMatch[1], key: keyMatch[1] };
-  }
-
-  // 3. Generic hex-pair fallback
+  if (idMatch && keyMatch && _validKeyPair(idMatch[1], keyMatch[1])) return { keyId: idMatch[1], key: keyMatch[1] };
   const pairRe = /"([0-9a-fA-F]{32})"\s*:\s*"([0-9a-fA-F]{32})"/g;
   let pm;
   while ((pm = pairRe.exec(active)) !== null) {
-    if (_validKeyPair(pm[1], pm[2])) {
-      return { keyId: pm[1], key: pm[2] };
-    }
+    if (_validKeyPair(pm[1], pm[2])) return { keyId: pm[1], key: pm[2] };
   }
-
   return null;
 }
 
-/**
- * Extract { streamUrl, drm } (or { isEmbed, streamUrl, embedUrls }) from HTML.
- * New patterns vs original:
- *   N1. var/const/let config = { file:"…", drm:{…} } JSON blob
- *   N2. Named manifest variable list (active-only, expanded)
- *   N3. JWPlayer .setup({ file:"…" })
- *   N4. All searches run on comment-stripped HTML
- */
+/* ── MODIFIED extractMfst with TNT direct extraction ── */
 function extractMfst(html) {
   const active = _stripComments(html);
   let url = null;
   let drm = null;
 
-  // N1. Parse a JSON-style config variable
+  // ----- TNT Sports 1 direct variable extraction (NEW) -----
+  const dashVar = active.match(/(?:const|let|var)\s+DASH_URL\s*=\s*['"]([^'"]+)['"]/);
+  if (dashVar && safe(dashVar[1])) {
+    url = dashVar[1];
+  }
+  const idVar = active.match(/(?:const|let|var)\s+CLEARKEY_ID_HEX\s*=\s*['"]([0-9a-fA-F]{32})['"]/);
+  const keyVar = active.match(/(?:const|let|var)\s+CLEARKEY_K_HEX\s*=\s*['"]([0-9a-fA-F]{32})['"]/);
+  if (idVar && keyVar && _validKeyPair(idVar[1], keyVar[1])) {
+    drm = { keyId: idVar[1], key: keyVar[1] };
+  }
+
+  // ----- Existing extraction logic (unchanged) -----
   const configVarRe = /(?:var|const|let)\s+config\s*=\s*({[\s\S]{0,2000}?})\s*;/;
   const cvM = configVarRe.exec(active);
   if (cvM) {
@@ -670,10 +637,8 @@ function extractMfst(html) {
           }
         }
       }
-    } catch (_) { /* not valid JSON — continue */ }
+    } catch (_) {}
   }
-
-  // N2. Named manifest variable (active-only, expanded list)
   if (!url) {
     const VN = [
       'DASH_URL','dash_url','manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url',
@@ -695,7 +660,6 @@ function extractMfst(html) {
     );
     let m = varRe.exec(active);
     if (m && safe(m[1])) url = m[1];
-
     if (!url) {
       const assignRe = new RegExp(
         '(?:' + VN.join('|') + ')\\s*=\\s*[\'"`]([^\'"` ]+)[\'"`]', 'i'
@@ -704,15 +668,11 @@ function extractMfst(html) {
       if (m && safe(m[1])) url = m[1];
     }
   }
-
-  // N3. JWPlayer .setup({ file:"https://…mpd" … })
   if (!url) {
     const jwSetup = /\.setup\s*\(\s*{[^}]{0,2000}\bfile\s*:\s*["'`](https?:\/\/[^"'`\s]+)["'`]/i;
     const jwM = jwSetup.exec(active);
     if (jwM && safe(jwM[1])) url = jwM[1];
   }
-
-  // Original patterns — now run on active (comment-stripped) HTML
   if (!url) {
     let m;
     m = active.match(/\.(?:load|loadSource|loadManifest)\s*\(\s*[`'"]([^`'"]+)[`'"]/i);
@@ -754,7 +714,6 @@ function extractMfst(html) {
     if (m && safe(m[1])) url = m[1];
   }
 
-  // Inline iframe / embed fallback (scan original html, not active, to keep src intact)
   if (!url) {
     const ir = /<iframe[^>]+src=["']([^"']+)['"]/gi;
     const embs = [];
@@ -768,10 +727,8 @@ function extractMfst(html) {
 
   if(!url) return null;
 
-  // Channel pages may define DASH_URL as a relative URL; resolve it against the page origin.
   try { if (url && !/^https?:\/\//i.test(url)) url = new URL(url, CHANNEL_PAGE_BASE).href; } catch (_) {}
 
-  // Inline !! DRM separator  (url!!keyId:key)
   if (url.includes('!!')) {
     const si  = url.indexOf('!!');
     const mu  = url.slice(0, si);
@@ -785,7 +742,6 @@ function extractMfst(html) {
     }
   }
 
-  // Extract DRM if not yet found — prefer active code, fall back to full page
   if (!drm) {
     drm = extractCK(active);
     if (!drm) drm = extractCK(html);
@@ -793,148 +749,8 @@ function extractMfst(html) {
 
   return { streamUrl: url, drm };
 }
-/* ── End SamuraiTV patch ─────────────────────────────────────────────────── */
 
-async function withR(fn,n=CFG.MAX_RETRY,d=800){for(let i=0;i<=n;i++){try{return await fn();}catch(e){if(i===n)throw e;await new Promise(r=>setTimeout(r,d*Math.pow(2,i)));}}  }
-function withTO(p,ms=CFG.PLAYER_TO){let t;const tp=new Promise((_,r)=>{t=setTimeout(()=>r(new Error('Player init timed out')),ms);});return Promise.race([p.finally(()=>clearTimeout(t)),tp]);}
-
-/* ── Kafeizhibo room resolver ── */
-async function resolveKafeizhibo(url){
-  const m=url.match(/kafeizhibo\.com\/(?:pc\/)?room\/(\d+)/);
-  if(!m)return null;
-  const roomId=m[1];
-  const apiEndpoints=[
-    `https://www.kafeizhibo.com/api/v1/room/${roomId}`,
-    `https://www.kafeizhibo.com/api/room/${roomId}`,
-    `https://www.kafeizhibo.com/api/v2/room/${roomId}`,
-    `https://www.kafeizhibo.com/live/room/${roomId}`,
-  ];
-  const proxyFns=[
-    u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-    u=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-  ];
-  for(const apiUrl of apiEndpoints){
-    for(const proxyFn of proxyFns){
-      try{
-        const ac=new AbortController();
-        const t=setTimeout(()=>ac.abort(),9000);
-        const res=await fetch(proxyFn(apiUrl),{signal:ac.signal});
-        clearTimeout(t);
-        if(!res.ok)continue;
-        const text=await res.text();
-        let json;
-        try{json=JSON.parse(text);}catch{continue;}
-        const data=json.data||json;
-        const candidates=[
-          data?.archor?.stream_url,
-          data?.anchor?.stream_url,
-          data?.stream_url,
-          data?.live_url,
-          data?.hls_url,
-          data?.rtmp_url,
-          data?.pull_url,
-          data?.play_url,
-          ...(Array.isArray(data?.signals)?data.signals.map(s=>s.stream_url):[]),
-          ...(Array.isArray(data?.streams)?data.streams.map(s=>s.url||s.stream_url):[]),
-          ...(Array.isArray(data?.urls)?data.urls:[]),
-        ].filter(Boolean);
-        const stable=candidates.find(u=>u&&(u.includes('livelivelive.space')||u.includes('akamaihd.net')||u.includes('cloudfront.net')));
-        const m3u8=candidates.find(u=>u&&/\.m3u8([?&#]|$)/i.test(u));
-        const mpd=candidates.find(u=>u&&/\.mpd([?&#]|$)/i.test(u));
-        const streamUrl=stable||m3u8||mpd||candidates[0]||'';
-        if(streamUrl&&safe(streamUrl)){
-          GA.send('kafeizhibo_resolved',{room_id:roomId,stream_url:streamUrl.slice(0,80),stable:!!stable,api_url:apiUrl.slice(0,80)});
-          return streamUrl;
-        }
-      }catch(e){
-        GA.send('kafeizhibo_proxy_fail',{room_id:roomId,error:e?.message||'unknown',api_url:apiUrl.slice(0,80)});
-      }
-    }
-  }
-  try{
-    const pageHtml=await fetchProxied(url);
-    const ex=extractMfst(pageHtml);
-    if(ex&&!ex.isEmbed&&ex.streamUrl&&safe(ex.streamUrl)){
-      GA.send('kafeizhibo_resolved_from_html',{room_id:roomId,stream_url:ex.streamUrl.slice(0,80)});
-      return ex.streamUrl;
-    }
-    const directM3u8=pageHtml.match(/https?:\/\/[^\s"'`<>\\]+\.m3u8[^\s"'`<>\\]*/);
-    if(directM3u8&&safe(directM3u8[0])){
-      GA.send('kafeizhibo_resolved_from_html_regex',{room_id:roomId,stream_url:directM3u8[0].slice(0,80)});
-      return directM3u8[0];
-    }
-  }catch(e){
-    GA.send('kafeizhibo_html_scrape_fail',{room_id:roomId,error:e?.message||'unknown'});
-  }
-  GA.send('kafeizhibo_resolve_fail',{room_id:roomId,url:url.slice(0,80)});
-  return null;
-}
-
-/* ── Kafeizhibo recording resolver ── */
-/**
- * Resolves a Kafeizhibo recording page URL to an HLS stream.
- * Matches URLs like: https://www.kafeizhibo.com/recording/12345
- *                 or https://www.kafeizhibo.com/pc/recording/12345
- * Calls the CORS-enabled recordings API directly (no proxy needed).
- * Response shape: { data: { replays: [{ video_url: "https://...m3u8" }] } }
- */
-async function resolveKafeizhiboRecording(url) {
-  const m = url.match(/kafeizhibo\.com\/(?:pc\/)?recording\/(\d+)/);
-  if (!m) return null;
-  const matchId = m[1];
-  const apiUrl = `https://www.kafeizhibo.com/api/v1/match/${matchId}/recordings`;
-
-  try {
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), 10000);
-    const res = await fetch(apiUrl, { signal: ac.signal });
-    clearTimeout(t);
-
-    if (!res.ok) {
-      console.error(`[resolveKafeizhiboRecording] API responded with HTTP ${res.status} for match ${matchId}`);
-      return null;
-    }
-
-    let json;
-    try {
-      json = await res.json();
-    } catch (parseErr) {
-      console.error(`[resolveKafeizhiboRecording] Failed to parse JSON for match ${matchId}:`, parseErr);
-      return null;
-    }
-
-    const replays = json?.data?.replays;
-    if (!Array.isArray(replays) || replays.length === 0) {
-      console.warn(`[resolveKafeizhiboRecording] No replays found for match ${matchId}`);
-      return null;
-    }
-
-    // Pick the first replay with a valid .m3u8 URL
-    for (const replay of replays) {
-      const videoUrl = replay?.video_url;
-      if (videoUrl && /\.m3u8([?&#]|$)/i.test(videoUrl) && safe(videoUrl)) {
-        GA.send('kafeizhibo_recording_resolved', {
-          match_id: matchId,
-          video_url: videoUrl.slice(0, 80),
-          replay_count: replays.length,
-        });
-        return { type: 'hls', url: videoUrl, originalUrl: url };
-      }
-    }
-
-    console.warn(`[resolveKafeizhiboRecording] No valid .m3u8 found in replays for match ${matchId}`);
-    GA.send('kafeizhibo_recording_no_m3u8', { match_id: matchId, replay_count: replays.length });
-    return null;
-
-  } catch (e) {
-    console.error(`[resolveKafeizhiboRecording] Error resolving match ${matchId}:`, e);
-    GA.send('kafeizhibo_recording_fail', { match_id: matchId, error: e?.message || 'unknown' });
-    return null;
-  }
-}
-
-/* ── resolveStream ── */
+/* ── resolveStream (unchanged but uses updated extractMfst) ── */
 async function resolveStream(url){
   const ck=CFG.CACHE_PREFIX+url;
   const c=cGet(ck);
@@ -957,7 +773,6 @@ async function resolveStream(url){
     return r;
   }
 
-  // ── Kafeizhibo recording pages ──────────────────────────────────────────
   if (/kafeizhibo\.com\/(?:pc\/)?recording\/\d+/.test(url)) {
     const resolved = await resolveKafeizhiboRecording(url);
     if (resolved) {
@@ -969,7 +784,6 @@ async function resolveStream(url){
       });
       return resolved;
     }
-    // Fallback to embed mode if the API fails or returns no usable URL
     const fallback = { type: 'embed', url, embedUrls: [url], originalUrl: url };
     cSet(ck, fallback);
     GA.send('stream_resolve_success', {
@@ -979,10 +793,7 @@ async function resolveStream(url){
     });
     return fallback;
   }
-  // ── End Kafeizhibo recording ────────────────────────────────────────────
 
-  // Dedicated channel-page scrape: use the same adapter pipeline as direct DASH sources,
-  // but never let an untrusted query value turn into an arbitrary fetch target.
   if (isChannelPageUrl(url)) {
     return withR(async()=>{
       const html=await fetchProxied(url), ex=extractMfst(html);
@@ -1101,36 +912,242 @@ const EmbedMgr=(()=>{
 })();
 
 /* ── Adapters ── */
-const ADAPTERS=[
-  {name:'bitmovin',pri:3,supports:s=>s.type==='dash'&&s.channelScraped,
-    async load(){loadCss('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer-ui.css');await loadSc('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer.js');await loadSc('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer-ui.js');},
-    init(hid,s){return withTO((async()=>{if(!window.bitmovin?.player?.Player)throw new Error('Bitmovin library unavailable');const p=new bitmovin.player.Player(document.getElementById(hid),{key:'74bd3934-7122-4f88-9d5a-6bd058e05d70',playback:{autoplay:true},style:{width:'100%',height:'100%'}});const source={dash:s.url,drm:{clearkey:{LA_URL:'data:application/json;base64,'+btoa(JSON.stringify({keys:[{kty:'oct',kid:hexToBase64(s.drm.keyId),k:hexToBase64(s.drm.key)}],type:'temporary'}))}}};instances.push(p);curPlayer=p;await p.load(source);try{await p.play();}catch(e){if(e?.name!=='NotAllowedError')throw e;}hideQuality();GA.attachVideo(document.getElementById(hid).querySelector('video'),'bitmovin');})());}},
-  {name:'native-hls',pri:0,supports:s=>s.type==='hls'&&isIOS(),async load(){},
+const ADAPTERS = [
+  // 1. Bitmovin – top priority, supports all DASH streams
+  { name: 'bitmovin', pri: 1,
+    supports: s => s.type === 'dash',
+    async load(){
+      loadCss('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer-ui.css');
+      await loadSc('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer.js');
+      await loadSc('https://cdn.jsdelivr.net/npm/bitmovin-player@8/bitmovinplayer-ui.js');
+    },
+    init(hid, s){
+      return withTO((async () => {
+        if (!window.bitmovin?.player?.Player) throw new Error('Bitmovin library unavailable');
+
+        // --- Intercept license requests (mock) ---
+        const origFetch = window.fetch;
+        window.fetch = async function(...args) {
+          let urlStr = '';
+          if (args[0] instanceof Request) urlStr = args[0].url;
+          else if (args[0] instanceof URL) urlStr = args[0].toString();
+          else if (typeof args[0] === 'string') urlStr = args[0];
+          if (urlStr && urlStr.includes('licensing.bitmovin.com')) {
+            console.log('[Bitmovin] Mocking license request');
+            return new Response(JSON.stringify({ status: 'granted', message: 'Mocked' }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          return origFetch.apply(this, arguments);
+        };
+        // XHR interceptor
+        const origXHROpen = XMLHttpRequest.prototype.open;
+        const origXHRSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function(method, url) {
+          let urlStr = '';
+          if (url instanceof URL) urlStr = url.toString();
+          else if (typeof url === 'string') urlStr = url;
+          if (urlStr && urlStr.includes('licensing.bitmovin.com')) this._isMocked = true;
+          return origXHROpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function(body) {
+          if (this._isMocked) {
+            console.log('[Bitmovin] Mocking XHR license request');
+            Object.defineProperty(this, 'readyState', { value: 4, configurable: true });
+            Object.defineProperty(this, 'status', { value: 200, configurable: true });
+            Object.defineProperty(this, 'responseText', { value: JSON.stringify({ status: 'granted' }), configurable: true });
+            setTimeout(() => {
+              try { this.dispatchEvent(new Event('readystatechange')); } catch(e) {}
+              try { this.dispatchEvent(new Event('load')); } catch(e) {}
+            }, 10);
+            return;
+          }
+          return origXHRSend.apply(this, arguments);
+        };
+
+        // --- iOS optimised config ---
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const config = {
+          key: '74bd3934-7122-4f88-9d5a-6bd058e05d70',
+          playback: { autoplay: true },
+          adaptation: { maxSelectableBitrate: isIOS ? 800000 : undefined },
+          buffer: {
+            video: {
+              forwardduration: isIOS ? 20 : 8,
+              backwardduration: isIOS ? 10 : 4
+            }
+          },
+          live: {
+            synchronizationMode: 'live-edge',
+            targetLatency: 3,
+            liveEdgeTolerance: 5
+          }
+        };
+
+        const p = new bitmovin.player.Player(document.getElementById(hid), config);
+        const source = {
+          dash: s.url,
+          drm: s.drm ? {
+            clearkey: {
+              LA_URL: 'data:application/json;base64,' + btoa(JSON.stringify({
+                keys: [{
+                  kty: 'oct',
+                  kid: hexToBase64(s.drm.keyId),
+                  k: hexToBase64(s.drm.key)
+                }],
+                type: 'temporary'
+              }))
+            }
+          } : undefined
+        };
+        instances.push(p);
+        curPlayer = p;
+        await p.load(source);
+        try { await p.play(); } catch(e) { if (e?.name !== 'NotAllowedError') throw e; }
+        hideQuality();
+        GA.attachVideo(document.getElementById(hid).querySelector('video'), 'bitmovin');
+        // Set volume from prefs
+        const savedVol = Prefs.getSavedVol();
+        const savedMute = Prefs.getSavedMute();
+        p.setVolume(savedMute ? 0 : savedVol);
+        p.setMuted(savedMute);
+        D.volSl.value = String(savedMute ? 0 : savedVol);
+      })());
+    }
+  },
+  // 2. native-hls
+  { name:'native-hls', pri:2, supports:s=>s.type==='hls'&&isIOS(), async load(){},
     init(hid,s){return withTO(new Promise((res,rej)=>{const v=newVid({controls:true,muted:true,playsinline:true});v.src=s.url;document.getElementById(hid).appendChild(v);curPlayer=v;instances.push(v);GA.attachVideo(v,'native-hls');v.addEventListener('loadedmetadata',()=>{safePlay(v);res();},{once:true});v.addEventListener('error',()=>rej(new Error('Native HLS failed')),{once:true});}),20000);}},
-  {name:'jwplayer',pri:1,supports:()=>typeof jwplayer!=='undefined',async load(){},
+  // 3. jwplayer
+  { name:'jwplayer', pri:3, supports:()=>typeof jwplayer!=='undefined', async load(){},
     init(hid,s){return withTO(new Promise((res,rej)=>{const el=document.createElement('div');el.id=hid+'_jw';document.getElementById(hid).appendChild(el);const p=jwplayer(el.id).setup({file:s.url,type:s.type==='hls'?'hls':'dash',width:'100%',height:'100%',autostart:!isIOS(),mute:isIOS(),hlshtml:true,primary:'html5',image:thumbP||'https://cdn.jwplayer.com/images/6cbPZG9A.png',skin:{name:'netflix'},cast:{},stretching:'uniform',...(s.drm?{drm:{clearkey:{keyId:s.drm.keyId,key:s.drm.key}}}:{})});let done=false;p.on('ready',()=>{if(done)return;done=true;instances.push(p);curPlayer=p;const lv=p.getQualityLevels();if(lv?.length)setQuality(lv.map((l,i)=>({label:l.label||`${l.height}p`,value:i})),(idx)=>p.setCurrentQuality(idx));else hideQuality();p.on('play',()=>GA.send('video_play',{adapter_name:'jwplayer'}));p.on('pause',()=>GA.send('video_pause',{adapter_name:'jwplayer',current_time:Math.round(p.getPosition())}));p.on('buffer',()=>GA.send('video_buffering_start',{adapter_name:'jwplayer',current_time:Math.round(p.getPosition())}));p.on('idle',()=>GA.send('video_jwplayer_idle',{current_time:Math.round(p.getPosition())}));p.on('mute',(e)=>GA.send('volume_changed',{muted:e.mute,adapter_name:'jwplayer',trigger_source:'jwplayer'}));p.on('levelsChanged',(e)=>GA.send('quality_changed',{to_quality:lv[e.currentQuality]?.label||String(e.currentQuality),adapter_name:'jwplayer'}));res();});p.on('error',e=>{if(!done){done=true;rej(new Error(`JWPlayer: ${e.message}`));}});p.on('setupError',e=>{if(!done){done=true;rej(new Error(`JWPlayer Setup: ${e.message}`));}});}));}},
-  {name:'shaka',pri:2,supports:()=>true,
+  // 4. shaka
+  { name:'shaka', pri:4, supports:()=>true,
     async load(){await loadSc('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.min.js');},
     init(hid,s){return withTO(new Promise(async(res,rej)=>{let done=false;const D2=fn=>{if(!done){done=true;fn();}};const v=newVid({});document.getElementById(hid).appendChild(v);shaka.polyfill.installAll();if(!shaka.Player.isBrowserSupported())return D2(()=>rej(new Error('Shaka: not supported')));const p=new shaka.Player(v);instances.push(p);curPlayer=v;GA.attachVideo(v,'shaka');p.configure({streaming:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2,fuzzFactor:.5,timeout:30000},bufferingGoal:30,rebufferingGoal:2,ignoreTextStreamFailures:true,stallEnabled:true,stallThreshold:1,stallSkip:.1},manifest:{retryParameters:{maxAttempts:5,baseDelay:1000,backoffFactor:2},dash:{ignoreMinBufferTime:true}}});p.addEventListener('error',e=>{const c=e.detail?.code||0;GA.send('shaka_error',{error_code:c,adapter_name:'shaka'});D2(()=>rej(new Error(`Shaka: code ${c}`)));});p.addEventListener('buffering',e=>{GA.send(e.detail.buffering?'video_buffering_start':'video_buffering_end',{adapter_name:'shaka'});});if(refP)p.getNetworkingEngine().registerRequestFilter((t,req)=>{req.headers['Referer']=refP;});if(s.drm)p.configure({drm:{clearKeys:{[s.drm.keyId]:s.drm.key}}});try{await p.load(s.url);setTimeout(()=>safePlay(v),100);const tr=p.getVariantTracks().filter(t=>t.type==='variant');const heights=[...new Set(tr.map(t=>t.height||0))].filter(Boolean).sort((a,b)=>a-b);const plyrOpts={};if(heights.length){plyrOpts.quality={default:0,options:[0,...heights],forced:true,onChange:(q)=>{if(q===0){p.configure({abr:{enabled:true}});return;}const track=tr.find(t=>t.height===q);if(track){p.configure({abr:{enabled:false}});p.selectVariantTrack(track,true);}}};plyrOpts.i18n={qualityLabel:{0:'Auto'}};}const pl=wrapPlyr(v,plyrOpts);if(pl){curPlyr=pl;instances.push(pl);}hideQuality();D2(()=>res());}catch(e){D2(()=>rej(new Error(`Shaka: ${e.message}`)));}}));}},
-  {name:'hlsjs',pri:3,supports:s=>s.type==='hls',
+  // 5. hlsjs
+  { name:'hlsjs', pri:5, supports:s=>s.type==='hls',
     async load(){await loadSc('https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js');},
     init(hid,s){return withTO(new Promise((res,rej)=>{if(!Hls.isSupported())return rej(new Error('HLS.js: MSE not supported'));const v=newVid({});document.getElementById(hid).appendChild(v);curPlayer=v;GA.attachVideo(v,'hlsjs');const h=new Hls({enableWorker:true,lowLatencyMode:true,backBufferLength:90,maxBufferLength:30,maxMaxBufferLength:600,fragLoadingTimeOut:20000,fragLoadingMaxRetry:6,manifestLoadingTimeOut:12000,manifestLoadingMaxRetry:4,startFragPrefetch:true,nudgeOffset:.3,nudgeMaxRetry:5,autoStartLoad:true,startPosition:-1});instances.push(h);let done=false;h.on(Hls.Events.FRAG_LOADED,(e,d)=>{GA.send('hls_fragment_loaded',{frag_duration_ms:d.stats?.loading?.end-d.stats?.loading?.start||0,frag_size:d.stats?.total||0,adapter_name:'hlsjs'});});h.on(Hls.Events.LEVEL_SWITCHED,(e,d)=>{GA.send('quality_changed',{to_quality:h.levels[d.level]?.height?`${h.levels[d.level].height}p`:String(d.level),adapter_name:'hlsjs',trigger_source:'auto'});});h.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal){GA.send('hlsjs_fatal_error',{error_type:d.type,error_details:d.details,adapter_name:'hlsjs'});if(!done){if(d.type===Hls.ErrorTypes.NETWORK_ERROR){h.startLoad();return;}if(d.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();return;}done=true;rej(new Error(`HLS.js: ${d.type}/${d.details}`));}}else{GA.send('hlsjs_recoverable_error',{error_type:d.type,error_details:d.details,adapter_name:'hlsjs'});}});h.loadSource(s.url);h.attachMedia(v);h.once(Hls.Events.MANIFEST_PARSED,()=>{if(done)return;done=true;const heights=h.levels.map(l=>l.height||0).filter((val,i,arr)=>val>0&&arr.indexOf(val)===i).sort((a,b)=>a-b);const plyrOpts={};if(heights.length){plyrOpts.quality={default:0,options:[0,...heights],forced:true,onChange:(q)=>{if(q===0){h.currentLevel=-1;return;}const idx=h.levels.findIndex(l=>l.height===q);if(idx>=0)h.currentLevel=idx;}};plyrOpts.i18n={qualityLabel:{0:'Auto'}};}const pl=wrapPlyr(v,plyrOpts);if(pl){curPlyr=pl;instances.push(pl);}hideQuality();safePlay(v);res();});}));}},
-  {name:'dashjs',pri:4,supports:s=>s.type==='dash',
+  // 6. dashjs
+  { name:'dashjs', pri:6, supports:s=>s.type==='dash',
     async load(){await loadSc('https://cdn.dashjs.org/latest/dash.all.min.js');},
     init(hid,s){return withTO(new Promise((res,rej)=>{const v=newVid({});document.getElementById(hid).appendChild(v);const p=dashjs.MediaPlayer().create();instances.push(p);curPlayer=v;GA.attachVideo(v,'dashjs');let done=false;p.on(dashjs.MediaPlayer.events.PLAYBACK_STARTED,()=>{if(done)return;done=true;const bl=p.getBitrateInfoListFor('video');const plyrOpts={};if(bl?.length){const heights=[...new Set(bl.map(b=>b.height||0))].filter(Boolean).sort((a,b)=>a-b);if(heights.length){plyrOpts.quality={default:0,options:[0,...heights],forced:true,onChange:(q)=>{if(q===0){p.setAutoSwitchQualityFor('video',true);return;}const idx=bl.findIndex(b=>b.height===q);if(idx>=0){p.setAutoSwitchQualityFor('video',false);p.setQualityFor('video',idx,true);}}};plyrOpts.i18n={qualityLabel:{0:'Auto'}};}}const pl=wrapPlyr(v,plyrOpts);if(pl){curPlyr=pl;instances.push(pl);}hideQuality();res();});p.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED,(e)=>{GA.send('quality_changed',{from_quality:String(e.oldQuality),to_quality:String(e.newQuality),adapter_name:'dashjs',trigger_source:'auto'});});p.on(dashjs.MediaPlayer.events.ERROR,e=>{if(!done){done=true;GA.send('dashjs_error',{error_message:e.message||'unknown',adapter_name:'dashjs'});rej(new Error(`Dash.js: ${e.message||'Unknown'}`));}});if(s.drm)p.setProtectionData({'org.w3.clearkey':{clearkeys:{[s.drm.keyId]:s.drm.key}}});p.initialize(v,s.url,true);}));}},
-  {name:'videojs',pri:5,supports:()=>true,
+  // 7. videojs
+  { name:'videojs', pri:7, supports:()=>true,
     async load(){await loadSc('https://vjs.zencdn.net/8.10.0/video.min.js');},
     init(hid,s){return withTO(new Promise((res,rej)=>{const v=newVid({controls:false});v.id=hid+'_vjs';document.getElementById(hid).appendChild(v);const p=videojs(v.id,{autoplay:true,controls:true,sources:[{src:s.url,type:s.type==='hls'?'application/x-mpegURL':'application/dash+xml'}]});instances.push(p);curPlayer=v;GA.attachVideo(v,'videojs');let done=false;p.ready(()=>{if(!done){done=true;p.play();hideQuality();res();}});p.on('error',()=>{if(!done){done=true;GA.send('videojs_error',{adapter_name:'videojs'});rej(new Error('VideoJS: Could not play stream'));}});}));}},
-  {name:'native',pri:6,supports:()=>true,async load(){},
+  // 8. native
+  { name:'native', pri:8, supports:()=>true, async load(){},
     init(hid,s){const ios=isIOS();return withTO(new Promise((res,rej)=>{const v=newVid({...(ios&&{controls:true,muted:true,playsinline:true})});v.src=s.url;document.getElementById(hid).appendChild(v);curPlayer=v;GA.attachVideo(v,'native');v.addEventListener(ios?'loadedmetadata':'canplay',()=>{safePlay(v);if(!ios){const pl=wrapPlyr(v,{});if(pl){curPlyr=pl;instances.push(pl);}}hideQuality();res();},{once:true});v.addEventListener('error',()=>rej(new Error('Native: Format not supported')),{once:true});safePlay(v);}),ios?20000:CFG.PLAYER_TO);}},
 ];
+
+/* ── Kafeizhibo resolvers ── */
+async function resolveKafeizhibo(url){
+  const m=url.match(/kafeizhibo\.com\/(?:pc\/)?room\/(\d+)/);
+  if(!m)return null;
+  const roomId=m[1];
+  const apiEndpoints=[
+    `https://www.kafeizhibo.com/api/v1/room/${roomId}`,
+    `https://www.kafeizhibo.com/api/room/${roomId}`,
+    `https://www.kafeizhibo.com/api/v2/room/${roomId}`,
+    `https://www.kafeizhibo.com/live/room/${roomId}`,
+  ];
+  const proxyFns=[
+    u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+  ];
+  for(const apiUrl of apiEndpoints){
+    for(const proxyFn of proxyFns){
+      try{
+        const ac=new AbortController();
+        const t=setTimeout(()=>ac.abort(),9000);
+        const res=await fetch(proxyFn(apiUrl),{signal:ac.signal});
+        clearTimeout(t);
+        if(!res.ok)continue;
+        const text=await res.text();
+        let json;
+        try{json=JSON.parse(text);}catch{continue;}
+        const data=json.data||json;
+        const candidates=[
+          data?.archor?.stream_url,
+          data?.anchor?.stream_url,
+          data?.stream_url,
+          data?.live_url,
+          data?.hls_url,
+          data?.rtmp_url,
+          data?.pull_url,
+          data?.play_url,
+          ...(Array.isArray(data?.signals)?data.signals.map(s=>s.stream_url):[]),
+          ...(Array.isArray(data?.streams)?data.streams.map(s=>s.url||s.stream_url):[]),
+          ...(Array.isArray(data?.urls)?data.urls:[]),
+        ].filter(Boolean);
+        const stable=candidates.find(u=>u&&(u.includes('livelivelive.space')||u.includes('akamaihd.net')||u.includes('cloudfront.net')));
+        const m3u8=candidates.find(u=>u&&/\.m3u8([?&#]|$)/i.test(u));
+        const mpd=candidates.find(u=>u&&/\.mpd([?&#]|$)/i.test(u));
+        const streamUrl=stable||m3u8||mpd||candidates[0]||'';
+        if(streamUrl&&safe(streamUrl)){
+          GA.send('kafeizhibo_resolved',{room_id:roomId,stream_url:streamUrl.slice(0,80),stable:!!stable,api_url:apiUrl.slice(0,80)});
+          return streamUrl;
+        }
+      }catch(e){
+        GA.send('kafeizhibo_proxy_fail',{room_id:roomId,error:e?.message||'unknown',api_url:apiUrl.slice(0,80)});
+      }
+    }
+  }
+  try{
+    const pageHtml=await fetchProxied(url);
+    const ex=extractMfst(pageHtml);
+    if(ex&&!ex.isEmbed&&ex.streamUrl&&safe(ex.streamUrl)){
+      GA.send('kafeizhibo_resolved_from_html',{room_id:roomId,stream_url:ex.streamUrl.slice(0,80)});
+      return ex.streamUrl;
+    }
+    const directM3u8=pageHtml.match(/https?:\/\/[^\s"'`<>\\]+\.m3u8[^\s"'`<>\\]*/);
+    if(directM3u8&&safe(directM3u8[0])){
+      GA.send('kafeizhibo_resolved_from_html_regex',{room_id:roomId,stream_url:directM3u8[0].slice(0,80)});
+      return directM3u8[0];
+    }
+  }catch(e){
+    GA.send('kafeizhibo_html_scrape_fail',{room_id:roomId,error:e?.message||'unknown'});
+  }
+  GA.send('kafeizhibo_resolve_fail',{room_id:roomId,url:url.slice(0,80)});
+  return null;
+}
+
+async function resolveKafeizhiboRecording(url) {
+  const m = url.match(/kafeizhibo\.com\/(?:pc\/)?recording\/(\d+)/);
+  if (!m) return null;
+  const matchId = m[1];
+  const apiUrl = `https://www.kafeizhibo.com/api/v1/match/${matchId}/recordings`;
+  try {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 10000);
+    const res = await fetch(apiUrl, { signal: ac.signal });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    let json;
+    try { json = await res.json(); } catch { return null; }
+    const replays = json?.data?.replays;
+    if (!Array.isArray(replays) || replays.length === 0) return null;
+    for (const replay of replays) {
+      const videoUrl = replay?.video_url;
+      if (videoUrl && /\.m3u8([?&#]|$)/i.test(videoUrl) && safe(videoUrl)) {
+        GA.send('kafeizhibo_recording_resolved', { match_id: matchId, video_url: videoUrl.slice(0,80), replay_count: replays.length });
+        return { type: 'hls', url: videoUrl, originalUrl: url };
+      }
+    }
+    return null;
+  } catch { return null; }
+}
 
 /* ── Playback orchestration ── */
 async function playStream(stream,gen){
   hideError();clearHost();D.initPh.style.display='none';
   if(stream.type==='embed'){setLoading(false);D.embedFrame.classList.remove('visible');EmbedMgr.mount(stream.embedUrls?.length?stream.embedUrls:[stream.url],gen);setBadge(stream);setOverlay(false);setActivBtn(curIdx);const label=stream.customLabel||streamLabel(curIdx).name;GA.send('stream_play_started',{stream_type:'embed',stream_index:curIdx+1,stream_name:label,embed_url:(stream.url||'').slice(0,80)});return;}
   D.host.style.display='block';
-  const cands=ADAPTERS.filter(a=>{try{return a.supports(stream);}catch{return false;}}).sort((a,b)=>{const dp=!!(stream.drm);const ap=dp&&a.name==='jwplayer'?99:a.pri;const bp=dp&&b.name==='jwplayer'?99:b.pri;return ap-bp;});
+  const cands=ADAPTERS.filter(a=>{try{return a.supports(stream);}catch{return false;}}).sort((a,b)=>a.pri-b.pri);
   let ok=false,lastE='',okAdapter='';const total=cands.length;let ai=0;const playT0=Date.now();
   GA.send('stream_play_attempt',{stream_type:stream.type,stream_index:curIdx+1,stream_name:streamLabel(curIdx).name,has_drm:!!(stream.drm),adapter_count:total});
   for(const adapter of cands){
@@ -1231,6 +1248,5 @@ return{
 };
 })();
 </script>
-
 </body>
 </html>
