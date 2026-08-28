@@ -348,6 +348,23 @@ const CFG={
   ],
 };
 const lbl=i=>i<CFG.LABELS.length?CFG.LABELS[i]:{name:`Stream ${i+1}`,icon:'📺'};
+
+/* ── Async guards ── */
+function withTO(task, timeout=CFG.PLAYER_TO){
+  const work=typeof task==='function'?task():task;
+  return Promise.race([
+    Promise.resolve(work),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error(`Operation timed out after ${timeout}ms`)),timeout))
+  ]);
+}
+async function withR(task, retries=0){
+  let lastError;
+  for(let attempt=0;attempt<=retries;attempt++){
+    try{return await task();}
+    catch(error){lastError=error;if(attempt<retries)await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));}
+  }
+  throw lastError||new Error('Operation failed');
+}
 const streamLabel=i=>{const s=streams[i];if(s&&s.customLabel)return{name:s.customLabel,icon:s.type==='embed'?'📺':lbl(i).icon};return lbl(i);};
 const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
@@ -387,7 +404,7 @@ const GA=(()=>{
     v.addEventListener('error',()=>{const code=v.error?.code||0;const msg=({1:'ABORTED',2:'NETWORK',3:'DECODE',4:'SRC_NOT_SUPPORTED'})[code]||'UNKNOWN';send('video_native_error',{adapter_name:adapterName,error_code:code,error_type:msg});});
     v.addEventListener('volumechange',()=>{const vol=Math.round(v.volume*100);trackVolume(v.muted?0:vol,'video_control');});
   }
-  return{send,trackVolume,attachVideo,startMilestones,stopMilestones,markFirstPlay(){if(!_firstPlayAt)_firstPlayAt=Date.now();};
+  return{send,trackVolume,attachVideo,startMilestones,stopMilestones,markFirstPlay(){if(!_firstPlayAt)_firstPlayAt=Date.now();}};
 })();
 
 /* ── DOM refs ── */
@@ -506,7 +523,7 @@ function startAutoNextSwitch(){clearTimeout(autoNextTimer);D.fbCountdown.classLi
 function cancelAutoNextSwitch(reason='user'){if(!autoNextTimer)return;clearTimeout(autoNextTimer);autoNextTimer=null;D.fbCountdown.style.transition='none';D.fbCountdown.style.transform='scaleX(0)';GA.send('auto_next_cancelled',{cancel_reason:reason});}
 
 /* ── Error panel ── */
-function showError(rawErr=''){if(curStream?.isFallback){showFallback('fallback_failed');return;}Perf.errors++;showFallback('playback_error');return;GA.stopMilestones();clearHost();Perf.errors++;const f=friendly(rawErr);D.errIco.textContent=f.ico;D.errTtl.textContent=f.ttl;D.errMsg.textContent=f.msg;if(f.hint){D.errHint.textContent=f.hint;D.errHint.classList.add('on');}else D.errHint.classList.remove('on');const rem=CFG.MAX_RETRY-retryCount;if(streams.length>1){D.errRetries.textContent=rem>0?`${rem} attempt${rem!==1?'s':''} remaining — auto-switching in ${CFG.AUTO_NEXT_DELAY/1000}s`:`Auto-switching to next stream in ${CFG.AUTO_NEXT_DELAY/1000}s…`;}else{D.errRetries.textContent=rem>0?`${rem} attempt${rem!==1?'s':''} remaining — switching to backup in ${CFG.AUTO_NEXT_DELAY/1000}s`:`Switching to backup…`;}D.btnRetry.disabled=rem<=0;D.errPanel.classList.add('active');appState='error';setLoading(false);ThumbMgr.show();GA.send('error_shown',{error_title:f.ttl,error_raw:rawErr.slice(0,150),retries_remaining:rem,stream_index:curIdx+1,adapter_name:curAdapter,watch_sec_before_error:Perf.sec()});startAutoNextSwitch();}
+function showError(rawErr=''){if(curStream?.isFallback){showFallback('fallback_failed');return;}Perf.errors++;GA.stopMilestones();clearHost();const f=friendly(rawErr);D.errIco.textContent=f.ico;D.errTtl.textContent=f.ttl;D.errMsg.textContent=f.msg;if(f.hint){D.errHint.textContent=f.hint;D.errHint.classList.add('on');}else D.errHint.classList.remove('on');const rem=CFG.MAX_RETRY-retryCount;if(streams.length>1){D.errRetries.textContent=rem>0?`${rem} attempt${rem!==1?'s':''} remaining — auto-switching in ${CFG.AUTO_NEXT_DELAY/1000}s`:`Auto-switching to next stream in ${CFG.AUTO_NEXT_DELAY/1000}s…`;}else{D.errRetries.textContent=rem>0?`${rem} attempt${rem!==1?'s':''} remaining — switching to backup in ${CFG.AUTO_NEXT_DELAY/1000}s`:`Switching to backup…`;}D.btnRetry.disabled=rem<=0;D.errPanel.classList.add('active');appState='error';setLoading(false);ThumbMgr.show();GA.send('error_shown',{error_title:f.ttl,error_raw:rawErr.slice(0,150),retries_remaining:rem,stream_index:curIdx+1,adapter_name:curAdapter,watch_sec_before_error:Perf.sec()});startAutoNextSwitch();}
 document.addEventListener('error',e=>{const media=e.target;if(!(media instanceof HTMLMediaElement)||!curStream||curStream.isFallback||appState!=='playing')return;GA.send('runtime_media_error',{error_code:media.error?.code||0,adapter_name:curAdapter});showError('Runtime media playback error');},true);
 function hideError(){D.errPanel.classList.remove('active');D.errRetries.textContent='';cancelAutoNextSwitch('panel_hidden');}
 
@@ -1249,4 +1266,3 @@ return{
 })();
 </script>
 </body>
-</html>
