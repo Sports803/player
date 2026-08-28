@@ -396,7 +396,7 @@ const D={stage:document.getElementById('stage'),host:document.getElementById('pl
 /* ── State ── */
 let appState='idle',playGen=0,retryCount=0;
 let ctrlTimer=null,toastTimer=null,gTimer=null,swTimer=null,autoNextTimer=null;
-let streams=[],curIdx=0,curStream=null,curPlayer=null,curPlyr=null,instances=[],curAdapter='';
+let streams=[],curIdx=0,curStream=null,curPlayer=null,curPlyr=null,instances=[],curAdapter='',lastResolveError='';
 const Perf={t0:Date.now(),pStart:null,goT:null,switches:0,errors:0,log:[],sec(){return this.pStart?Math.round((Date.now()-this.pStart)/1000):0}};
 
 /* ── User Preference Memory ── */
@@ -548,7 +548,8 @@ function newVid(a={}){const v=document.createElement('video');v.style.cssText='w
 async function safePlay(v){try{await v.play();}catch(e){if(e&&(e.name==='AbortError'||e.name==='NotAllowedError'))return;throw e;}}
 
 /* ── Proxy ── */
-async function fetchProxied(url){const order=[...CFG.PSCORE.keys()].sort((a,b)=>CFG.PSCORE[b]-CFG.PSCORE[a]);let last;for(const i of order){const pu=CFG.PROXY[i](url),ac=new AbortController();ac._t=setTimeout(()=>ac.abort(),9000);const t0=Date.now();GA.send('proxy_attempt',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,target_url:url.slice(0,80)});try{const r=await fetch(pu,{signal:ac.signal});clearTimeout(ac._t);if(!r.ok)throw new Error(`HTTP ${r.status}`);let t=await r.text();if(pu.includes('allorigins')){try{const j=JSON.parse(t);if(j.contents!==undefined)t=j.contents;}catch{}}CFG.PSCORE[i]=Math.max(CFG.PSCORE[i],1);GA.send('proxy_success',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,response_ms:Date.now()-t0});return t;}catch(e){clearTimeout(ac._t);CFG.PSCORE[i]=Math.max(0,CFG.PSCORE[i]-1);GA.send('proxy_fail',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,error_message:e?.message||'unknown',elapsed_ms:Date.now()-t0});last=e;}}GA.send('proxy_all_failed',{target_url:url.slice(0,80)});throw last||new Error('All proxies failed');}
+function isChannelPageUrl(url){return /^https:\/\/livetv\.rkda\.my\.id\/channels\/[a-z0-9][a-z0-9_-]{0,79}\.html$/i.test(String(url||''));}
+async function fetchProxied(url){const isChannel=isChannelPageUrl(url);const order=[...CFG.PSCORE.keys()].sort((a,b)=>CFG.PSCORE[b]-CFG.PSCORE[a]);const started=Date.now();const budget=isChannel?9000:Math.max(9000,order.length*9000);let last;for(const [attempt,i] of order.entries()){const remaining=budget-(Date.now()-started);if(remaining<=0)break;const pu=CFG.PROXY[i](url),ac=new AbortController();const timeout=Math.min(isChannel?3500:9000,remaining);ac._t=setTimeout(()=>ac.abort(),timeout);const t0=Date.now();if(isChannel)setLoading(true,`Trying channel source ${attempt+1} of ${order.length}…`,10+Math.round((attempt/order.length)*30));GA.send('proxy_attempt',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,attempt_number:attempt+1,attempt_count:order.length,target_url:url.slice(0,80)});try{const r=await fetch(pu,{signal:ac.signal});clearTimeout(ac._t);if(!r.ok)throw new Error(`HTTP ${r.status}`);let t=await r.text();if(pu.includes('allorigins')){try{const j=JSON.parse(t);if(j.contents!==undefined)t=j.contents;}catch{}}if(!t||!t.trim())throw new Error('Empty proxy response');CFG.PSCORE[i]=Math.max(CFG.PSCORE[i],1);GA.send('proxy_success',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,response_ms:Date.now()-t0});return t;}catch(e){clearTimeout(ac._t);CFG.PSCORE[i]=Math.max(0,CFG.PSCORE[i]-1);GA.send('proxy_fail',{proxy_name:CFG.PROXY_NAMES[i],proxy_index:i,error_message:e?.message||'unknown',elapsed_ms:Date.now()-t0});last=e;}}GA.send('proxy_all_failed',{target_url:url.slice(0,80),channel_page:isChannel,total_ms:Date.now()-started});if(isChannel)throw new Error('Could not reach channel source (may be blocked)');throw last||new Error('All proxies failed');}
 
 /* ── Cache ── */
 function cGet(k){try{const r=sessionStorage.getItem(k);if(!r)return null;const p=JSON.parse(r);if(Date.now()-(p._at||0)>CFG.CACHE_TTL){sessionStorage.removeItem(k);return null;}return p;}catch{return null;}}
@@ -982,17 +983,19 @@ async function resolveStream(url){
 
   // Dedicated channel-page scrape: use the same adapter pipeline as direct DASH sources,
   // but never let an untrusted query value turn into an arbitrary fetch target.
-  if (/^https:\/\/livetv\.rkda\.my\.id\/channels\/[a-z0-9][a-z0-9_-]{0,79}\.html$/i.test(url)) {
+  if (isChannelPageUrl(url)) {
     return withR(async()=>{
       const html=await fetchProxied(url), ex=extractMfst(html);
-      if(!ex || !ex.streamUrl || !/\.mpd([?&#]|$)/i.test(ex.streamUrl)) throw new Error('Channel stream source not available');
+      if(!ex || !ex.streamUrl) throw new Error('Channel stream source not available');
       const streamUrl=new URL(ex.streamUrl, url).href;
       if(!safe(streamUrl)) throw new Error('Unsafe channel stream URL');
+      const type=/\.m3u8([?&#]|$)/i.test(streamUrl)?'hls':/\.mpd([?&#]|$)/i.test(streamUrl)?'dash':null;
+      if(!type) throw new Error('Channel stream source not available');
       const drm=ex.drm||extractCK(html);
-      if(!drm) throw new Error('Channel ClearKey credentials not found');
-      const r={type:'dash',url:streamUrl,drm,channelScraped:true,originalUrl:url};
-      cSet(ck,r);GA.send('channel_scrape_success',{channel:url.split('/').pop().replace(/\.html$/i,''),stream_type:'dash',has_drm:true,resolve_ms:Date.now()-t0});return r;
-    });
+      if(type==='dash'&&!drm) throw new Error('Channel ClearKey credentials not found');
+      const r={type,url:streamUrl,channelScraped:true,originalUrl:url,...(drm&&{drm})};
+      cSet(ck,r);GA.send('channel_scrape_success',{channel:url.split('/').pop().replace(/\.html$/i,''),stream_type:type,has_drm:!!drm,resolve_ms:Date.now()-t0});return r;
+    },0);
   }
 
   if(url.includes('!!')){
@@ -1141,14 +1144,22 @@ async function playStream(stream,gen){
 }
 
 /* ── Fallback screen ── */
+function showChannelSourceError(reason='Could not reach channel source (may be blocked)'){
+  GA.stopMilestones();clearHost();appState='error';setLoading(false);setOverlay(false);setBadge(null);D.initPh.style.display='none';
+  const w=document.createElement('div');w.className='fb-wrap';w.innerHTML='<p class="fb-ttl">⚠ Channel source unavailable</p><p id="channel-error-msg"></p><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button type="button" id="channel-retry-btn" style="margin-top:8px;padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px">↺ Try Again</button><button type="button" id="channel-backup-btn" style="margin-top:8px;padding:9px 22px;background:rgba(255,255,255,.08);color:#fff;border:1px solid var(--border2);border-radius:8px;cursor:pointer;font-size:13px">Use Backup</button></div>';
+  w.querySelector('#channel-error-msg').textContent=reason.includes('blocked')?'Could not reach the channel source. It may be blocked by Cloudflare or unavailable.':reason;
+  w.querySelector('#channel-retry-btn').addEventListener('click',()=>location.reload());
+  w.querySelector('#channel-backup-btn').addEventListener('click',()=>showFallback('user_requested'));
+  D.host.appendChild(w);D.host.style.display='block';GA.send('channel_source_error',{reason:reason.slice(0,150)});
+}
 function showFallback(reason='all_failed'){if(curStream?.isFallback&&reason==='fallback_failed'){GA.stopMilestones();clearHost();appState='fallback';setOverlay(false);setBadge(null);ThumbMgr.show();const w=document.createElement('div');w.className='fb-wrap';w.innerHTML='<p class="fb-ttl">⚠ Backup stream unavailable</p><p>The configured backup channel could not be played.</p><button type="button" onclick="SP.go(0)" style="margin-top:8px;padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">↺ Try Primary Again</button>';D.host.appendChild(w);D.host.style.display='block';GA.send('fallback_failed',{stream_index:curIdx+1,total_errors:Perf.errors});return;}const fs=CFG.FALLBACK_URL&&safe(CFG.FALLBACK_URL)?CFG.FALLBACK_URL:'';if(!fs){GA.stopMilestones();clearHost();appState='fallback';setOverlay(false);setBadge(null);ThumbMgr.show();const w=document.createElement('div');w.className='fb-wrap';w.innerHTML='<p class="fb-ttl">⚠ Stream unavailable</p><p>All sources failed. No backup channel configured.</p><p style="color:rgba(255,255,255,.3);margin-top:8px">Set a FALLBACK_URL in the player config to show a backup here.</p><button type="button" onclick="SP.go(0)" style="margin-top:8px;padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">↺ Try Primary Again</button>';D.host.appendChild(w);D.host.style.display='block';GA.send('fallback_shown',{reason,has_fallback_url:false,stream_index:curIdx+1,total_errors:Perf.errors,session_sec:Math.round((Date.now()-Perf.t0)/1000)});return;}const fallback={type:'hls',url:fs,originalUrl:fs,customLabel:'Backup channel',isFallback:true};if(!streams.some(s=>s.isFallback))streams.push(fallback);const fallbackIdx=streams.findIndex(s=>s.isFallback);GA.send('fallback_shown',{reason,has_fallback_url:true,stream_index:fallbackIdx+1,total_errors:Perf.errors,session_sec:Math.round((Date.now()-Perf.t0)/1000)});go(fallbackIdx);}
 
 /* ── loadStreams ── */
 async function loadStreams(){
-  const result=[];setLoading(true,'Finding best stream…',10);
+  const result=[];lastResolveError='';setLoading(true,'Finding best stream…',10);
   GA.send('streams_load_start',{mora_count:moraP.length,embed_count:embedP.length});const t0=Date.now();
   const results=await Promise.allSettled(moraP.map(url=>resolveStream(url)));
-  const mora=[];results.forEach((r,i)=>{if(r.status==='fulfilled'&&r.value)mora.push({...r.value,originalUrl:moraP[i]});else{console.warn(`mora[${i}] failed:`,r.reason?.message);GA.send('stream_resolve_fail',{stream_index:i,reason:r.reason?.message||'unknown'});}});
+  const mora=[];results.forEach((r,i)=>{if(r.status==='fulfilled'&&r.value)mora.push({...r.value,originalUrl:moraP[i]});else{const reason=r.reason?.message||'unknown';lastResolveError=lastResolveError||reason;console.warn(`mora[${i}] failed:`,reason);GA.send('stream_resolve_fail',{stream_index:i,reason});}});
   embedP.forEach((url,index)=>{result.push({type:'embed',url,embedUrls:[url],originalUrl:url,customLabel:`Stream ${index+1}`});});
   if(isIOS()){const hls=mora.filter(s=>s.type==='hls'),oth=mora.filter(s=>s.type!=='hls'&&s.type!=='dash');result.unshift(...hls,...oth);}else result.unshift(...mora);
   GA.send('streams_load_complete',{total_streams:result.length,hls_count:result.filter(s=>s.type==='hls').length,dash_count:result.filter(s=>s.type==='dash').length,embed_count:result.filter(s=>s.type==='embed').length,resolve_ms:Date.now()-t0});
@@ -1189,7 +1200,7 @@ function handleErrorFallback(){cancelAutoNextSwitch('user_fallback');GA.send('us
   GA.send('session_start',{mora_sources:moraP.length,embed_sources:embedP.length,has_drm_key:!!(drmKP||drmLicenseP),referrer:document.referrer.slice(0,80)||'direct',user_agent:navigator.userAgent.slice(0,120),screen_width:screen.width,screen_height:screen.height,device_pixel_ratio:window.devicePixelRatio||1});
   if(!moraP.length&&!embedP.length){D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No stream source provided.</p>';setLoading(false);GA.send('init_no_sources');return;}
   GC.init();streams=await loadStreams();
-  if(!streams.length){D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No playable streams found.</p>';showFallback('no_streams');setLoading(false);return;}
+  if(!streams.length){if(moraP.some(isChannelPageUrl)){showChannelSourceError(lastResolveError||'Could not reach channel source (may be blocked)');}else{D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No playable streams found.</p>';showFallback('no_streams');setLoading(false);}return;}
   buildBtns(streams);ScoreBoard.init();
   let savedIdx=0;try{const s=parseInt(localStorage.getItem(CFG.STORAGE_KEY),10);if(!isNaN(s)&&s>=0&&s<streams.length){savedIdx=s;GA.send('saved_stream_restored',{saved_index:s+1});}}catch{}
   await go(savedIdx);
