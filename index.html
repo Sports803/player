@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -429,8 +429,20 @@ function safe(url){if(!url||typeof url!=='string')return false;const t=url.trim(
   const p=new URL(base);if(!['http:','https:'].includes(p.protocol))return false;if(!p.hostname||p.hostname.length<3)return false;const m=p.hostname.match(/^(\d+)\.(\d+)\./);if(m){const[a,b]=[+m[1],+m[2]];if(a===127||a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168))return false;}return true;}catch{return false;}}
 
 /* ── Params ── */
+/** Normalize direct or percent-encoded stream URLs before safety checks. */
+function normalizeStreamUrl(raw){
+  if(typeof raw!=='string')return '';
+  let value=raw.replace(/&amp;/gi,'&').trim();
+  for(let i=0;i<3;i++){
+    let decoded=value;
+    try{decoded=decodeURIComponent(value);}catch{}
+    if(decoded===value)break;
+    value=decoded.trim();
+  }
+  return value;
+}
 function decodeData(){try{const e=new URLSearchParams(location.search).get('data');if(!e)return null;return JSON.parse(atob(e));}catch{return null;}}
-function getP(name){const d=decodeData();if(d&&d[name])return Array.isArray(d[name])?d[name]:[d[name]];return new URLSearchParams(location.search).getAll(name);}
+function getP(name){const d=decodeData();if(d&&d[name])return (Array.isArray(d[name])?d[name]:[d[name]]).map(normalizeStreamUrl);return new URLSearchParams(location.search).getAll(name).map(normalizeStreamUrl);}
 const moraP=getP('mora').filter(safe);
 const embedP=getP('embed').filter(safe);
 const drmKP=(new URLSearchParams(location.search).get('drmkey')||'').trim();
@@ -875,6 +887,9 @@ async function resolveKafeizhiboRecording(url) {
 
 /* ── resolveStream ── */
 async function resolveStream(url){
+  const originalUrl=url;
+  url=normalizeStreamUrl(url);
+  if(!safe(url))throw new Error('Invalid stream URL');
   const ck=CFG.CACHE_PREFIX+url;
   const c=cGet(ck);
   if(c){GA.send('stream_cache_hit',{stream_url:url.slice(0,80),stream_type:c.type});return c;}
@@ -938,7 +953,7 @@ async function resolveStream(url){
   }
 
   if(/\.m3u8([?&#]|$)/i.test(url)){
-    const r={type:'hls',url,originalUrl:url};
+    const r={type:'hls',url,originalUrl:originalUrl||url};
     cSet(ck,r);
     GA.send('stream_resolve_success',{stream_type:'hls',resolve_ms:Date.now()-t0,method:'direct'});
     return r;
@@ -1143,4 +1158,4 @@ return{
 </script>
 
 </body>
-</html> 
+</html>
