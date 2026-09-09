@@ -1229,7 +1229,15 @@ function handleErrorFallback(){cancelAutoNextSwitch('user_fallback');GA.send('us
   GC.init();streams=await loadStreams();
   if(!streams.length){D.initPh.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:14px;">No playable streams found.</p>';showFallback('no_streams');setLoading(false);return;}
   buildBtns(streams);ScoreBoard.init();
-  let savedIdx=0;try{const s=parseInt(localStorage.getItem(CFG.STORAGE_KEY),10);if(!isNaN(s)&&s>=0&&s<streams.length){savedIdx=s;GA.send('saved_stream_restored',{saved_index:s+1});}}catch{}
+  let savedIdx=0;
+  if(oneP.length){
+    // OneBall sources are ordered as detected; always begin with the last
+    // embed from this response instead of restoring an old local index.
+    const lastEmbedIdx=streams.map((stream,index)=>stream?.type==='embed'?index:-1).filter(index=>index>=0).pop();
+    if(lastEmbedIdx!==undefined){savedIdx=lastEmbedIdx;GA.send('oneball_last_embed_selected',{selected_index:savedIdx+1,total_streams:streams.length});}
+  }else{
+    try{const s=parseInt(localStorage.getItem(CFG.STORAGE_KEY),10);if(!isNaN(s)&&s>=0&&s<streams.length){savedIdx=s;GA.send('saved_stream_restored',{saved_index:s+1});}}catch{}
+  }
   await go(savedIdx);
   D.eeRetryBtn.addEventListener('click',()=>EmbedMgr.retry());
   D.eeNext.addEventListener('click',()=>EmbedMgr.nextSource());
