@@ -897,7 +897,45 @@ async function resolveKafeizhiboRecording(url) {
  * another embed wrapper, etc). This is intentional: these buttons are meant
  * to be opened as pages/players, not parsed for a raw manifest.
  * ────────────────────────────────────────────────────────────────────────── */
+async function resolveOneballApi(pageUrl){
+  if(!safe(pageUrl))return [];
+  const match=pageUrl.match(/\/live\/(\d+)(?:\.html)?(?:[?#]|$)/i);
+  if(!match)return [];
+  const eventId=match[1];
+  const apiUrl=`https://oneball.live/api/live/${eventId}.json`;
+  const ac=new AbortController();
+  const timer=setTimeout(()=>ac.abort(),8000);
+  try{
+    const res=await fetch(apiUrl,{signal:ac.signal,cache:'no-store',credentials:'omit'});
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    const signals=Array.isArray(data?.signals)?data.signals:[];
+    const results=[];
+    const seen=new Set();
+    signals.slice().sort((a,b)=>(Number(a?.sort_order)||0)-(Number(b?.sort_order)||0)).forEach((signal,index)=>{
+      const url=normalizeStreamUrl(signal?.url||'');
+      if(!url||!safe(url)||seen.has(url))return;
+      seen.add(url);
+      const playType=String(signal?.play_type||'').toLowerCase();
+      const label=String(signal?.label||`Stream ${index+1}`).trim();
+      // Match OneBall's own live-page behavior: raw m3u8 signals are opened
+      // through its configured player wrapper, while iframe signals are used as-is.
+      const embedUrl=playType==='iframe'
+        ? url
+        : `https://efg8732dsy.luxiang.win/?url=${encodeURIComponent(url)}&title=${encodeURIComponent(label)}`;
+      results.push({type:'embed',url:embedUrl,embedUrls:[embedUrl],originalUrl:pageUrl,customLabel:label});
+    });
+    GA.send('oneball_api_success',{event_id:eventId,link_count:results.length,api_url:apiUrl});
+    return results;
+  }catch(e){
+    GA.send('oneball_api_fail',{event_id:eventId,error:(e?.message||'unknown').slice(0,120)});
+    return [];
+  }finally{clearTimeout(timer);}
+}
+
 async function resolveOneball(pageUrl){
+  const apiResults=await resolveOneballApi(pageUrl);
+  if(apiResults.length)return apiResults;
   if(!safe(pageUrl))return [];
   const t0=Date.now();
   GA.send('oneball_resolve_start',{page_url:pageUrl.slice(0,80)});
