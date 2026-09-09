@@ -543,11 +543,12 @@ function _validKeyPair(keyId, key) {
 
 /**
  * Extract a ClearKey DRM pair {keyId, key} from raw page HTML.
+ * Priority: 1) Shaka clearKeys  2a) JWPlayer clearkey block  2b) flat keyId/key fields  3) generic hex-pair
  */
 function extractCK(html) {
   const active = _stripComments(html);
 
-  // 1. Shaka clearKeys
+  // 1. Shaka clearKeys: { "keyId32hex": "key32hex" }
   const shakaRe = /clearKeys\s*:\s*{[^}]{0,400}}/gi;
   let sm;
   while ((sm = shakaRe.exec(active)) !== null) {
@@ -558,7 +559,7 @@ function extractCK(html) {
     }
   }
 
-  // 2a. JWPlayer clearkey block
+  // 2a. JWPlayer / config  drm: { clearkey: { keyId:"…", key:"…" } }
   const jwBlockRe = /clearkey\s*:\s*{([^}]{0,600})}/gi;
   let jm;
   while ((jm = jwBlockRe.exec(active)) !== null) {
@@ -570,7 +571,7 @@ function extractCK(html) {
     }
   }
 
-  // 2b. Flat named fields
+  // 2b. Flat named fields scattered in page
   const idMatch  = active.match(/["']?keyId["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
   const keyMatch = active.match(/\b["']?key["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
   if (idMatch && keyMatch && _validKeyPair(idMatch[1], keyMatch[1])) {
@@ -589,7 +590,14 @@ function extractCK(html) {
   return null;
 }
 
-/** Extract { streamUrl, drm } or { isEmbed, streamUrl, embedUrls } from HTML. */
+/**
+ * Extract { streamUrl, drm } (or { isEmbed, streamUrl, embedUrls }) from HTML.
+ * New patterns vs original:
+ *   N1. var/const/let config = { file:"…", drm:{…} } JSON blob
+ *   N2. Named manifest variable list (active-only, expanded)
+ *   N3. JWPlayer .setup({ file:"…" })
+ *   N4. All searches run on comment-stripped HTML
+ */
 function extractMfst(html) {
   const active = _stripComments(html);
   let url = null;
@@ -620,7 +628,7 @@ function extractMfst(html) {
     } catch (_) { /* not valid JSON — continue */ }
   }
 
-  // N2. Named manifest variable
+  // N2. Named manifest variable (active-only, expanded list)
   if (!url) {
     const VN = [
       'manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url',
@@ -652,14 +660,14 @@ function extractMfst(html) {
     }
   }
 
-  // N3. JWPlayer .setup
+  // N3. JWPlayer .setup({ file:"https://…mpd" … })
   if (!url) {
     const jwSetup = /\.setup\s*\(\s*{[^}]{0,2000}\bfile\s*:\s*["'`](https?:\/\/[^"'`\s]+)["'`]/i;
     const jwM = jwSetup.exec(active);
     if (jwM && safe(jwM[1])) url = jwM[1];
   }
 
-  // Original patterns
+  // Original patterns — now run on active (comment-stripped) HTML
   if (!url) {
     let m;
     m = active.match(/\.(?:load|loadSource|loadManifest)\s*\(\s*[`'"]([^`'"]+)[`'"]/i);
@@ -701,7 +709,7 @@ function extractMfst(html) {
     if (m && safe(m[1])) url = m[1];
   }
 
-  // Inline iframe / embed fallback
+  // Inline iframe / embed fallback (scan original html, not active, to keep src intact)
   if (!url) {
     const ir = /<iframe[^>]+src=["']([^"']+)['"]/gi;
     const embs = [];
@@ -715,7 +723,7 @@ function extractMfst(html) {
 
   if (!url) return null;
 
-  // Inline !! DRM separator
+  // Inline !! DRM separator  (url!!keyId:key)
   if (url.includes('!!')) {
     const si  = url.indexOf('!!');
     const mu  = url.slice(0, si);
@@ -729,7 +737,7 @@ function extractMfst(html) {
     }
   }
 
-  // Extract DRM if not yet found
+  // Extract DRM if not yet found — prefer active code, fall back to full page
   if (!drm) {
     drm = extractCK(active);
     if (!drm) drm = extractCK(html);
@@ -816,6 +824,13 @@ async function resolveKafeizhibo(url){
 }
 
 /* ── Kafeizhibo recording resolver ── */
+/**
+ * Resolves a Kafeizhibo recording page URL to an HLS stream.
+ * Matches URLs like: https://www.kafeizhibo.com/recording/12345
+ *                 or https://www.kafeizhibo.com/pc/recording/12345
+ * Calls the CORS-enabled recordings API directly (no proxy needed).
+ * Response shape: { data: { replays: [{ video_url: "https://...m3u8" }] } }
+ */
 async function resolveKafeizhiboRecording(url) {
   const m = url.match(/kafeizhibo\.com\/(?:pc\/)?recording\/(\d+)/);
   if (!m) return null;
@@ -847,6 +862,7 @@ async function resolveKafeizhiboRecording(url) {
       return null;
     }
 
+    // Pick the first replay with a valid .m3u8 URL
     for (const replay of replays) {
       const videoUrl = replay?.video_url;
       if (videoUrl && /\.m3u8([?&#]|$)/i.test(videoUrl) && safe(videoUrl)) {
@@ -869,6 +885,58 @@ async function resolveKafeizhiboRecording(url) {
     return null;
   }
 }
+
+/* ── Oneball.live event-page resolver ──────────────────────────────────────
+ * Given an oneball.live event page (e.g. https://oneball.live/live/3939251.html),
+ * fetches the page HTML through the existing CORS proxy chain and scrapes
+ * every link inside:
+ *   <div class="detail-streams"><a class="stream-btn" href="...">LABEL</a></div>
+ * Each link becomes its OWN stream entry of type 'embed' — it is loaded in an
+ * iframe via EmbedMgr exactly like a manually-supplied embed= URL, regardless
+ * of what the link itself points to (a resolvable .m3u8, a dash player page,
+ * another embed wrapper, etc). This is intentional: these buttons are meant
+ * to be opened as pages/players, not parsed for a raw manifest.
+ * ────────────────────────────────────────────────────────────────────────── */
+async function resolveOneball(pageUrl){
+  if(!safe(pageUrl))return [];
+  const t0=Date.now();
+  GA.send('oneball_resolve_start',{page_url:pageUrl.slice(0,80)});
+  try{
+    const html=await fetchProxied(pageUrl);
+    let anchors=[];
+    if(typeof DOMParser!=='undefined'){
+      try{
+        const doc=new DOMParser().parseFromString(html,'text/html');
+        const scope=doc.querySelector('.detail-streams')||doc;
+        anchors=[...scope.querySelectorAll('a.stream-btn[href], a[class*="stream-btn"][href]')].map(a=>({href:a.getAttribute('href')||'',label:(a.textContent||'').trim().replace(/\s+/g,' ')}));
+      }catch(_){/* fall through to regex below */}
+    }
+    if(!anchors.length){
+      const re=/<a[^>]+class=["'][^"']*stream-btn[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      let m;
+      while((m=re.exec(html))!==null){
+        const label=m[2].replace(/<[^>]+>/g,'').trim().replace(/\s+/g,' ');
+        anchors.push({href:m[1],label});
+      }
+    }
+    const seen=new Set();
+    const results=[];
+    anchors.forEach(a=>{
+      const rawHref=(a.href||'').trim();
+      const decoded=normalizeStreamUrl(rawHref);
+      if(!decoded||!safe(decoded)||seen.has(decoded))return;
+      seen.add(decoded);
+      const label=a.label||`Stream ${results.length+1}`;
+      results.push({type:'embed',url:decoded,embedUrls:[decoded],originalUrl:pageUrl,customLabel:label});
+    });
+    GA.send('oneball_resolve_success',{page_url:pageUrl.slice(0,80),link_count:results.length,resolve_ms:Date.now()-t0});
+    return results;
+  }catch(e){
+    GA.send('oneball_resolve_fail',{page_url:pageUrl.slice(0,80),error:(e?.message||'unknown').slice(0,120),resolve_ms:Date.now()-t0});
+    return [];
+  }
+}
+/* ── End oneball.live resolver ────────────────────────────────────────────── */
 
 /* ── resolveStream ── */
 async function resolveStream(url){
@@ -896,7 +964,7 @@ async function resolveStream(url){
     return r;
   }
 
-  // Kafeizhibo recording pages
+  // ── Kafeizhibo recording pages ──────────────────────────────────────────
   if (/kafeizhibo\.com\/(?:pc\/)?recording\/\d+/.test(url)) {
     const resolved = await resolveKafeizhiboRecording(url);
     if (resolved) {
@@ -908,6 +976,7 @@ async function resolveStream(url){
       });
       return resolved;
     }
+    // Fallback to embed mode if the API fails or returns no usable URL
     const fallback = { type: 'embed', url, embedUrls: [url], originalUrl: url };
     cSet(ck, fallback);
     GA.send('stream_resolve_success', {
@@ -917,6 +986,7 @@ async function resolveStream(url){
     });
     return fallback;
   }
+  // ── End Kafeizhibo recording ────────────────────────────────────────────
 
   if(url.includes('!!')){
     const _si=url.indexOf('!!');
@@ -1066,44 +1136,22 @@ function showFallback(reason='all_failed'){if(curStream?.isFallback&&reason==='f
 async function loadStreams(){
   const result=[];setLoading(true,'Finding best stream…',10);
   GA.send('streams_load_start',{mora_count:moraP.length,embed_count:embedP.length,one_count:oneP.length});const t0=Date.now();
-
-  // Handle `one` parameter: fetch OneBall page and extract stream buttons as embeds
-  if(oneP.length>0){
-    for(const oneUrl of oneP){
-      try{
-        setLoading(true,'Fetching OneBall page…',20);
-        const pageHtml=await fetchProxied(oneUrl);
-        const doc=new DOMParser().parseFromString(pageHtml,'text/html');
-        const streamAnchors=doc.querySelectorAll('a.stream-btn');
-        if(streamAnchors.length){
-          streamAnchors.forEach(a=>{
-            const href=a.getAttribute('href');
-            if(href&&safe(href)){
-              const label=a.textContent.trim()||'Embed';
-              result.push({type:'embed',url:href,embedUrls:[href],originalUrl:href,customLabel:label});
-            }
-          });
-          GA.send('oneball_streams_extracted',{url:oneUrl,count:streamAnchors.length});
-        } else {
-          GA.send('oneball_no_stream_buttons',{url:oneUrl});
-        }
-      }catch(e){
-        console.warn('OneBall fetch failed:',e);
-        GA.send('oneball_fetch_fail',{url:oneUrl,error:e?.message||'unknown'});
-      }
-    }
-  }
-
-  // Existing mora handling
   const results=await Promise.allSettled(moraP.map(url=>resolveStream(url)));
   const mora=[];results.forEach((r,i)=>{if(r.status==='fulfilled'&&r.value)mora.push({...r.value,originalUrl:moraP[i]});else{console.warn(`mora[${i}] failed:`,r.reason?.message);GA.send('stream_resolve_fail',{stream_index:i,reason:r.reason?.message||'unknown'});}});
-
-  // Existing embed handling
   embedP.forEach((url,index)=>{result.push({type:'embed',url,embedUrls:[url],originalUrl:url,customLabel:`Stream ${index+1}`});});
-
+  if(oneP.length){
+    const oneResults=await Promise.allSettled(oneP.map(u=>resolveOneball(u)));
+    oneResults.forEach((r,i)=>{
+      if(r.status==='fulfilled'&&Array.isArray(r.value)&&r.value.length){
+        result.push(...r.value);
+      }else{
+        console.warn(`one[${i}] failed:`,r.reason?.message);
+        GA.send('oneball_page_fail',{page_index:i,page_url:(oneP[i]||'').slice(0,80),reason:r.reason?.message||'no_links_found'});
+      }
+    });
+  }
   if(isIOS()){const hls=mora.filter(s=>s.type==='hls'),oth=mora.filter(s=>s.type!=='hls'&&s.type!=='dash');result.unshift(...hls,...oth);}else result.unshift(...mora);
-
-  GA.send('streams_load_complete',{total_streams:result.length,hls_count:result.filter(s=>s.type==='hls').length,dash_count:result.filter(s=>s.type==='dash').length,embed_count:result.filter(s=>s.type==='embed').length,resolve_ms:Date.now()-t0});
+  GA.send('streams_load_complete',{total_streams:result.length,hls_count:result.filter(s=>s.type==='hls').length,dash_count:result.filter(s=>s.type==='dash').length,embed_count:result.filter(s=>s.type==='embed').length,one_count:oneP.length,resolve_ms:Date.now()-t0});
   return result;
 }
 
@@ -1157,7 +1205,7 @@ function handleErrorFallback(){cancelAutoNextSwitch('user_fallback');GA.send('us
   D.scCloseBtn.addEventListener('click',()=>closeHelp());
   D.pbFsBtn.addEventListener('click',()=>toggleFullscreen('click'));
 })();
-
+ 
 /* ── Public API ── */
 return{
   switchNext:(t)=>switchNext(t||'button'),
@@ -1172,5 +1220,6 @@ return{
 };
 })();
 </script>
+        
 </body>
 </html>
