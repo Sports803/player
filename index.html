@@ -888,6 +888,40 @@ async function resolveKafeizhiboRecording(url) {
   }
 }
 
+// ====================== MORA EVENT-PAGE EMBEDS ======================
+// Event pages expose their available players as .detail-streams .stream-btn
+// links. Keep the event as one player entry and pass all discovered links to
+// EmbedMgr, which already provides source switching and fallback behavior.
+async function resolveMoraEventPage(url) {
+  const html = await fetchProxied(url);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) throw new Error('Could not parse mora page');
+
+  const links = [...doc.querySelectorAll('.detail-streams .stream-btn[href]')];
+  const sources = [];
+  const seen = new Set();
+  for (const link of links) {
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw) continue;
+    let href;
+    try { href = new URL(raw, url).href; } catch { continue; }
+    href = normalizeStreamUrl(href);
+    if (!safe(href) || seen.has(href)) continue;
+    seen.add(href);
+    const label = (link.textContent || '').replace(/\s+/g, ' ').trim();
+    sources.push({ url: href, label: label || `Stream ${sources.length + 1}` });
+  }
+
+  if (!sources.length) throw new Error('No stream buttons found on mora page');
+  return {
+    type: 'embed',
+    url: sources[0].url,
+    embedUrls: sources.map(s => s.url),
+    embedLabels: sources.map(s => s.label),
+    originalUrl: url,
+  };
+}
+
 // ====================== ADAPTERS ======================
 const _sc = new Map();
 function loadSc(src) { if (_sc.has(src)) return _sc.get(src); const p = new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement('script'); s.src = src; s.async = true; s.onload = res; s.onerror = () => rej(new Error('Load failed: ' + src)); document.head.appendChild(s); }); _sc.set(src, p); return p; }
@@ -1454,10 +1488,24 @@ async function loadStreams() {
   });
 
   // Process mora scrapers
-  const moraResults = await Promise.allSettled(moraP.map(url => resolveStream(url)));
+  const moraResults = await Promise.allSettled(moraP.map(async url => {
+    // A mora event page is a directory of embed players, not a stream itself.
+    // Retain the existing resolver for direct manifests and other source types.
+    try { return await resolveMoraEventPage(url); }
+    catch (e) {
+      if (/oneball\.live\/live\//i.test(url)) throw e;
+      return resolveStream(url);
+    }
+  }));
   const mora = [];
   moraResults.forEach((r, i) => {
-    if (r.status === 'fulfilled' && r.value) mora.push({ ...r.value, originalUrl: moraP[i] });
+    if (r.status === 'fulfilled' && r.value) {
+      const value = r.value;
+      const label = value.type === 'embed' && value.embedUrls?.length > 1
+        ? `Event ${i + 1} (${value.embedUrls.length} streams)`
+        : undefined;
+      mora.push({ ...value, originalUrl: moraP[i], ...(label && { customLabel: label }) });
+    }
     else { console.warn(`mora[${i}] failed:`, r.reason?.message); GA.send('stream_resolve_fail', { stream_index: i, reason: r.reason?.message || 'unknown' }); }
   });
 
