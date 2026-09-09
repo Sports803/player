@@ -688,7 +688,7 @@ function extractMfst(html) {
   return { streamUrl: url, drm };
 }
 
-// ====================== STREAM BUTTON EXTRACTION (raw URL, old behavior) ======================
+// ====================== ENHANCED: extract stream links from buttons ======================
 function extractStreamButtons(html) {
   const streamUrls = [];
   // Match <a> tags with class containing 'stream' or any <a> with href containing 'liveUrl=' or 'url='
@@ -737,30 +737,6 @@ function extractStreamButtons(html) {
   }
   // Remove duplicates
   return [...new Set(streamUrls)];
-}
-
-// ====================== STREAM BUTTON EXTRACTION AS EMBEDS (new, preferred) ======================
-// Scans for anchors like <a class="stream-btn" href="...player-page-url...">LABEL</a>
-// and returns the FULL href verbatim (to be used as an embed/iframe source), plus a
-// human label taken from the button's visible text (e.g. "HD-V", "HD-B", "HD-J").
-function extractStreamButtonEmbeds(html) {
-  const embeds = [];
-  const seen = new Set();
-  const anchorRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
-  let m;
-  while ((m = anchorRe.exec(html)) !== null) {
-    const attrs = m[1];
-    const inner = m[2];
-    if (!/class\s*=\s*["'][^"']*\bstream-btn\b[^"']*["']/i.test(attrs)) continue;
-    const hrefM = attrs.match(/href\s*=\s*["']([^"']+)["']/i);
-    if (!hrefM) continue;
-    let href = hrefM[1].replace(/&amp;/g, '&').trim();
-    if (!safe(href) || seen.has(href)) continue;
-    seen.add(href);
-    const label = inner.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || `Stream ${embeds.length + 1}`;
-    embeds.push({ url: href, label });
-  }
-  return embeds;
 }
 
 // ====================== CACHE ======================
@@ -892,38 +868,24 @@ async function resolveStream(url) {
   }
 }
 
-// ====================== MORA PAGE RESOLVER ======================
-// Priority order for a mora= page:
-//   1. .stream-btn anchors -> used verbatim as embed/iframe sources (preferred; this is
-//      how player pages like player.online909.com / efg8732dsy.luxiang.win are meant to be used)
-//   2. legacy extractStreamButtons() -> decoded inner stream URLs, resolved individually
-//   3. extractMfst() fallback for pages that embed the manifest/iframe directly
+// ====================== ENHANCED: resolveMoraPage for multiple streams ======================
 async function resolveMoraPage(url) {
   const streams = [];
   try {
     const html = await fetchProxied(url);
-
-    // 1) Preferred: .stream-btn anchors become embed sources, verbatim
-    const btnEmbeds = extractStreamButtonEmbeds(html);
-    if (btnEmbeds.length) {
-      btnEmbeds.forEach(b => {
-        streams.push({ type: 'embed', url: b.url, embedUrls: [b.url], originalUrl: url, customLabel: b.label });
-      });
-      return streams;
-    }
-
-    // 2) Legacy: extract raw stream URLs from generic buttons/iframes and resolve them
+    // First, extract direct stream URLs from buttons or anchors
     const buttonUrls = extractStreamButtons(html);
     for (const streamUrl of buttonUrls) {
+      // For each extracted URL, resolve it (will determine type)
       try {
         const resolved = await resolveStream(streamUrl);
-        resolved.customLabel = `Stream ${streams.length + 1}`;
+        resolved.customLabel = `Stream ${streams.length + 1}`; // custom label maybe later
         streams.push(resolved);
       } catch (e) {
         console.warn('Failed to resolve extracted stream URL:', streamUrl, e);
       }
     }
-    // 3) If nothing found, fall back to old single-manifest/embed extraction
+    // If no button streams found, fall back to old extraction
     if (streams.length === 0) {
       const ex = extractMfst(html);
       if (ex && !ex.isEmbed && ex.streamUrl && safe(ex.streamUrl)) {
