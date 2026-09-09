@@ -619,10 +619,11 @@ function extractMfst(html) {
   }
 
   if (!url) {
-    const VN = ['manifestUri', 'manifestUrl', 'manifestURL', 'manifest_uri', 'manifest_url', 'youtube_theme_manifestUri', 'streamUrl', 'streamURL', 'stream_url', 'hlsUrl', 'hlsURL', 'hls_url', 'dashUrl', 'dashURL', 'dash_url', 'videoUrl', 'videoURL', 'video_url', 'sourceUrl', 'sourceURL', 'source_url', 'liveUrl', 'liveURL', 'live_url', 'channelUrl', 'channel_url', 'streamSrc', 'stream_src', 'videoSrc', 'video_src', 'mediaSrc', 'media_src', 'playbackUrl', 'playback_url', 'linkStream', 'link_stream', 'urlStream', 'url_stream', 'srcStream', 'playerUrl', 'player_url', 'contentUrl', 'content_url'];
+    const VN = ['manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url','youtube_theme_manifestUri','streamUrl','streamURL','stream_url','hlsUrl','hlsURL','hls_url','dashUrl','dashURL','dash_url','videoUrl','videoURL','video_url','sourceUrl','sourceURL','source_url','liveUrl','liveURL','live_url','channelUrl','channel_url','streamSrc','stream_src','videoSrc','video_src','mediaSrc','media_src','playbackUrl','playback_url','linkStream','link_stream','urlStream','url_stream','srcStream','playerUrl','player_url','contentUrl','content_url'];
     const varRe = new RegExp('(?:const|var|let)\\s+(?:' + VN.join('|') + ')\\s*=\\s*[\'"`]([^\'"` ]+)[\'"`]', 'i');
     let m = varRe.exec(active);
     if (m && safe(m[1])) url = m[1];
+
     if (!url) {
       const assignRe = new RegExp('(?:' + VN.join('|') + ')\\s*=\\s*[\'"`]([^\'"` ]+)[\'"`]', 'i');
       m = assignRe.exec(active);
@@ -686,57 +687,6 @@ function extractMfst(html) {
   }
 
   return { streamUrl: url, drm };
-}
-
-// ====================== ENHANCED: extract stream links from buttons ======================
-function extractStreamButtons(html) {
-  const streamUrls = [];
-  // Match <a> tags with class containing 'stream' or any <a> with href containing 'liveUrl=' or 'url='
-  const anchorRegex = /<a\s[^>]*href=["']([^"']+)["'][^>]*>/gi;
-  let m;
-  while ((m = anchorRegex.exec(html)) !== null) {
-    let href = m[1];
-    href = href.replace(/&amp;/g, '&').trim();
-    if (!href) continue;
-    // Check for direct .m3u8/.mpd
-    if (/\.m3u8([?&#]|$)/i.test(href) || /\.mpd([?&#]|$)/i.test(href)) {
-      streamUrls.push(href);
-      continue;
-    }
-    // Check for our player with liveUrl param
-    if (href.includes('liveUrl=') || href.includes('liveurl=')) {
-      try {
-        const urlObj = new URL(href);
-        const liveUrl = urlObj.searchParams.get('liveUrl') || urlObj.searchParams.get('liveurl');
-        if (liveUrl && safe(decodeURIComponent(liveUrl))) streamUrls.push(decodeURIComponent(liveUrl));
-      } catch {}
-      continue;
-    }
-    // Check for efg8732dsy.luxiang.win or any link with url= param that points to a stream
-    if (href.includes('url=')) {
-      try {
-        const urlObj = new URL(href);
-        const streamParam = urlObj.searchParams.get('url');
-        if (streamParam && safe(decodeURIComponent(streamParam))) streamUrls.push(decodeURIComponent(streamParam));
-      } catch {}
-      continue;
-    }
-  }
-  // Also look for any iframes with src that are stream pages (optional)
-  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/gi;
-  let im;
-  while ((im = iframeRegex.exec(html)) !== null) {
-    let src = im[1].replace(/&amp;/g, '&').trim();
-    if (src.includes('liveUrl=') || src.includes('url=')) {
-      try {
-        const urlObj = new URL(src);
-        const liveUrl = urlObj.searchParams.get('liveUrl') || urlObj.searchParams.get('url');
-        if (liveUrl && safe(decodeURIComponent(liveUrl))) streamUrls.push(decodeURIComponent(liveUrl));
-      } catch {}
-    }
-  }
-  // Remove duplicates
-  return [...new Set(streamUrls)];
 }
 
 // ====================== CACHE ======================
@@ -866,41 +816,6 @@ async function resolveStream(url) {
   } catch (e) {
     throw e;
   }
-}
-
-// ====================== ENHANCED: resolveMoraPage for multiple streams ======================
-async function resolveMoraPage(url) {
-  const streams = [];
-  try {
-    const html = await fetchProxied(url);
-    // First, extract direct stream URLs from buttons or anchors
-    const buttonUrls = extractStreamButtons(html);
-    for (const streamUrl of buttonUrls) {
-      // For each extracted URL, resolve it (will determine type)
-      try {
-        const resolved = await resolveStream(streamUrl);
-        resolved.customLabel = `Stream ${streams.length + 1}`; // custom label maybe later
-        streams.push(resolved);
-      } catch (e) {
-        console.warn('Failed to resolve extracted stream URL:', streamUrl, e);
-      }
-    }
-    // If no button streams found, fall back to old extraction
-    if (streams.length === 0) {
-      const ex = extractMfst(html);
-      if (ex && !ex.isEmbed && ex.streamUrl && safe(ex.streamUrl)) {
-        const resolved = await resolveStream(ex.streamUrl);
-        resolved.customLabel = `Stream ${streams.length + 1}`;
-        streams.push(resolved);
-      } else if (ex && ex.isEmbed) {
-        const resolved = { type: 'embed', url: ex.streamUrl, embedUrls: ex.embedUrls, originalUrl: url, customLabel: `Stream ${streams.length + 1}` };
-        streams.push(resolved);
-      }
-    }
-  } catch (e) {
-    console.error('Error scraping mora page:', e);
-  }
-  return streams;
 }
 
 async function resolveKafeizhibo(url) {
@@ -1045,11 +960,9 @@ const EmbedMgr = (() => {
 })();
 
 // ====================== QUALITY SELECTOR ======================
-let qualityHandler = null;
 function setQuality(items, handler) {
   const btn = D.qualBtn;
   const menu = D.qualMenu;
-  qualityHandler = handler;
   if (!items || !items.length) { btn.classList.add('hidden'); menu.classList.remove('open'); qualityLevels = []; return; }
   qualityLevels = items;
   currentQualityIndex = -1; // Auto
@@ -1076,7 +989,7 @@ function setQuality(items, handler) {
   items.forEach((item, i) => addOption(item.label, i));
   btn.onclick = (e) => { e.stopPropagation(); menu.classList.toggle('open'); };
   document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target !== btn) menu.classList.remove('open'); });
-  if (Prefs.getLowData()) {
+  if (Prefs.getLowData()) { // auto select lowest
     const lowest = items[items.length - 1];
     currentQualityIndex = items.length - 1;
     btn.textContent = lowest.label;
@@ -1085,7 +998,7 @@ function setQuality(items, handler) {
     if (handler) handler(lowest.value);
   }
 }
-function hideQuality() { D.qualBtn.classList.add('hidden'); D.qualMenu.classList.remove('open'); qualityLevels = []; qualityHandler = null; }
+function hideQuality() { D.qualBtn.classList.add('hidden'); D.qualMenu.classList.remove('open'); qualityLevels = []; }
 
 // ====================== STREAM BUTTONS ======================
 let btnEls = [];
@@ -1520,40 +1433,105 @@ function getP(name) {
   if (d && d[name]) return (Array.isArray(d[name]) ? d[name] : [d[name]]).map(normalizeStreamUrl);
   return new URLSearchParams(location.search).getAll(name).map(normalizeStreamUrl);
 }
-// Main stream sources: liveUrl, url, mora, embed
+// Main stream sources: liveUrl, url, mora, embed, one
 const liveUrlP = getP('liveUrl').concat(getP('url')).filter(safe);
 const moraP = getP('mora').filter(safe);
 const embedP = getP('embed').filter(safe);
+const oneP = getP('one').filter(safe);
 const drmKP = (new URLSearchParams(location.search).get('drmkey') || '').trim();
 const refP = (new URLSearchParams(location.search).get('referer') || '').trim();
+
+// ====================== ONEBALL SCRAPER ======================
+/**
+ * Fetches a OneBall.live event page and extracts all .stream-btn links.
+ * Returns an array of stream objects (embed or direct HLS/DASH).
+ */
+async function scrapeOneballPage(pageUrl) {
+  try {
+    const html = await fetchProxied(pageUrl);
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const buttons = doc.querySelectorAll('a.stream-btn');
+    const streams = [];
+    buttons.forEach(btn => {
+      const href = btn.getAttribute('href');
+      const text = btn.textContent.trim();
+      if (!href || !safe(href)) return;
+      let absoluteHref;
+      try { absoluteHref = new URL(href, pageUrl).href; } catch { absoluteHref = href; }
+      // Check if it's our player link with liveUrl parameter
+      const urlObj = new URL(absoluteHref);
+      const liveUrlParam = urlObj.searchParams.get('liveUrl');
+      if (liveUrlParam && safe(liveUrlParam)) {
+        // Direct stream (HLS/DASH)
+        const type = /\.m3u8([?&#]|$)/i.test(liveUrlParam) ? 'hls' : (/\.mpd([?&#]|$)/i.test(liveUrlParam) ? 'dash' : 'hls');
+        streams.push({
+          type,
+          url: liveUrlParam,
+          originalUrl: liveUrlParam,
+          customLabel: text || (type === 'hls' ? 'HLS' : 'DASH'),
+        });
+      } else {
+        // Treat as embed
+        streams.push({
+          type: 'embed',
+          url: absoluteHref,
+          embedUrls: [absoluteHref],
+          originalUrl: absoluteHref,
+          customLabel: text || 'Embed',
+        });
+      }
+    });
+    return streams;
+  } catch (e) {
+    console.warn('[scrapeOneballPage] error:', e);
+    return [];
+  }
+}
 
 // ====================== LOAD STREAMS ======================
 async function loadStreams() {
   const result = [];
   setLoading(true, 'Finding best stream…', 10);
-  GA.send('streams_load_start', { mora_count: moraP.length, embed_count: embedP.length, liveurl_count: liveUrlP.length });
+  GA.send('streams_load_start', { mora_count: moraP.length, embed_count: embedP.length, liveurl_count: liveUrlP.length, one_count: oneP.length });
   const t0 = Date.now();
 
-  // Process liveUrl/url parameters first (highest priority)
+  // 1. Process liveUrl/url parameters
   const liveResults = await Promise.allSettled(liveUrlP.map(url => resolveStream(url)));
   liveResults.forEach((r, i) => {
     if (r.status === 'fulfilled' && r.value) result.push({ ...r.value, originalUrl: liveUrlP[i], customLabel: `Live ${i + 1}` });
     else { console.warn(`liveUrl[${i}] failed:`, r.reason?.message); GA.send('stream_resolve_fail', { stream_index: i, reason: r.reason?.message || 'unknown' }); }
   });
 
-  // Process mora scrapers (enhanced)
-  for (const moraUrl of moraP) {
-    try {
-      const moraStreams = await resolveMoraPage(moraUrl);
-      result.push(...moraStreams);
-    } catch (e) {
-      console.warn(`mora ${moraUrl} failed:`, e.message);
-      GA.send('stream_resolve_fail', { stream_url: moraUrl.slice(0, 80), reason: e.message });
-    }
+  // 2. Process mora scrapers
+  const moraResults = await Promise.allSettled(moraP.map(url => resolveStream(url)));
+  const mora = [];
+  moraResults.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value) mora.push({ ...r.value, originalUrl: moraP[i] });
+    else { console.warn(`mora[${i}] failed:`, r.reason?.message); GA.send('stream_resolve_fail', { stream_index: i, reason: r.reason?.message || 'unknown' }); }
+  });
+
+  // 3. Process OneBall pages
+  const oneStreams = [];
+  for (const oneUrl of oneP) {
+    const scraped = await scrapeOneballPage(oneUrl);
+    oneStreams.push(...scraped);
   }
 
-  // Process direct embeds
-  embedP.forEach((url, index) => { result.push({ type: 'embed', url, embedUrls: [url], originalUrl: url, customLabel: `Stream ${index + 1}` }); });
+  // 4. Process direct embeds
+  embedP.forEach((url, index) => {
+    result.push({ type: 'embed', url, embedUrls: [url], originalUrl: url, customLabel: `Stream ${index + 1}` });
+  });
+
+  // Combine: liveUrl/url, mora (hls first on iOS), oneball streams, embeds
+  if (isIOS()) {
+    const hls = mora.filter(s => s.type === 'hls');
+    const oth = mora.filter(s => s.type !== 'hls' && s.type !== 'dash');
+    result.push(...hls, ...oth);
+  } else {
+    result.push(...mora);
+  }
+  result.push(...oneStreams);
 
   GA.send('streams_load_complete', { total_streams: result.length, hls_count: result.filter(s => s.type === 'hls').length, dash_count: result.filter(s => s.type === 'dash').length, embed_count: result.filter(s => s.type === 'embed').length, resolve_ms: Date.now() - t0 });
   return result;
@@ -1586,14 +1564,28 @@ D.btnFullscreen.addEventListener('click', () => toggleFullscreen('click'));
 D.btnPip.addEventListener('click', () => togglePiP('click'));
 D.btnHelp.addEventListener('click', showHelp);
 D.pbFsBtn.addEventListener('click', () => toggleFullscreen('click'));
-D.btnLowdata.addEventListener('click', () => { const newVal = !Prefs.getLowData(); Prefs.setLowData(newVal); D.btnLowdata.classList.toggle('active-toggle', newVal); toast(newVal ? 'Low data mode ON' : 'Low data mode OFF'); if (newVal && qualityLevels.length) { const lowest = qualityLevels[qualityLevels.length - 1]; currentQualityIndex = qualityLevels.length - 1; D.qualBtn.textContent = lowest.label; D.qualMenu.querySelectorAll('.qual-option').forEach(o => o.classList.remove('selected')); D.qualMenu.querySelector(`.qual-option[data-index="${qualityLevels.length - 1}"]`).classList.add('selected'); if (qualityHandler) qualityHandler(lowest.value); } });
+D.btnLowdata.addEventListener('click', () => {
+  const newVal = !Prefs.getLowData();
+  Prefs.setLowData(newVal);
+  D.btnLowdata.classList.toggle('active-toggle', newVal);
+  toast(newVal ? 'Low data mode ON' : 'Low data mode OFF');
+  if (newVal && qualityLevels.length) {
+    const lowest = qualityLevels[qualityLevels.length - 1];
+    currentQualityIndex = qualityLevels.length - 1;
+    D.qualBtn.textContent = lowest.label;
+    D.qualMenu.querySelectorAll('.qual-option').forEach(o => o.classList.remove('selected'));
+    D.qualMenu.querySelector(`.qual-option[data-index="${qualityLevels.length - 1}"]`).classList.add('selected');
+    if (qualityHandler) qualityHandler(lowest.value);
+  }
+});
+let qualityHandler = null;
 
 // ====================== INITIALIZATION ======================
 (async () => {
   ThumbMgr.init();
-  GA.send('session_start', { liveurl_sources: liveUrlP.length, mora_sources: moraP.length, embed_sources: embedP.length, has_drm_key: !!drmKP, referrer: document.referrer.slice(0, 80) || 'direct', user_agent: navigator.userAgent.slice(0, 120), screen_width: screen.width, screen_height: screen.height, device_pixel_ratio: window.devicePixelRatio || 1 });
-  if (!liveUrlP.length && !moraP.length && !embedP.length) {
-    D.initPh.innerHTML = '<p style="color:rgba(255,255,255,.3);font-size:14px;">No stream source provided. Add <b>?liveUrl=YOUR_STREAM_URL</b> or <b>?mora=PAGE_URL</b> to the page URL.</p>';
+  GA.send('session_start', { liveurl_sources: liveUrlP.length, mora_sources: moraP.length, embed_sources: embedP.length, one_sources: oneP.length, has_drm_key: !!drmKP, referrer: document.referrer.slice(0, 80) || 'direct', user_agent: navigator.userAgent.slice(0, 120), screen_width: screen.width, screen_height: screen.height, device_pixel_ratio: window.devicePixelRatio || 1 });
+  if (!liveUrlP.length && !moraP.length && !embedP.length && !oneP.length) {
+    D.initPh.innerHTML = '<p style="color:rgba(255,255,255,.3);font-size:14px;">No stream source provided. Add <b>?liveUrl=YOUR_STREAM_URL</b> or <b>?one=ONEBALL_PAGE_URL</b> to the page URL.</p>';
     setLoading(false);
     GA.send('init_no_sources');
     return;
