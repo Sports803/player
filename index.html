@@ -376,15 +376,12 @@ const CFG = {
   EVENT_SAMPLE_MS: 4000,
   SANDBOX: 'allow-forms allow-pointer-lock allow-same-origin allow-scripts allow-top-navigation',
   PROXY: [
-    // corsproxy.org currently returns the complete Blogger HTML, including
-    // the live manifest and ClearKey block needed by mora extraction.
-    u => `https://corsproxy.org/?${u}`,
     u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ],
-  PSCORE: [0, 0, 0, 0],
-  PROXY_NAMES: ['corsproxy.org', 'corsproxy.io', 'codetabs.com', 'allorigins.win'],
+  PSCORE: [0, 0, 0],
+  PROXY_NAMES: ['corsproxy.io', 'codetabs.com', 'allorigins.win'],
   SELF_CTRL: new Set(['jwplayer', 'embed']),
   LABELS: [
     { name: 'HD 1', icon: '📺' }, { name: 'Full HD', icon: '🎯' }, { name: 'Backup', icon: '🔄' },
@@ -1012,6 +1009,13 @@ async function safePlay(v) {
 
 /* ── Proxy ── */
 async function fetchProxied(url) {
+  // Try the source directly first. Some Blogger pages expose CORS only
+  // intermittently; when readable, this preserves the live MPD and ClearKey
+  // values without relying on a third-party proxy.
+  try {
+    const direct = await fetchWithTimeout(url, CFG.PROXY_TO, { cache: 'no-store', credentials: 'omit' });
+    if (direct.ok) return await direct.text();
+  } catch {}
   const order = [...CFG.PSCORE.keys()].sort((a, b) => CFG.PSCORE[b] - CFG.PSCORE[a]);
   let last;
   for (const i of order) {
