@@ -344,7 +344,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
    v3 fixes: DOMParser-based extraction so commented-out <script> blocks on
    Blogger/Blogspot pages (like live.samuraitv.biz.id) can no longer leak
    stale manifest URLs into the active source list. Adds proper handling of
-   Shaka `<script>…const streamUrl = "…mpd"…</script>` and clearKeys block,
+   Shaka `<script>…const streamUrl = "…mpd"…&lt;/script&gt;` and clearKeys block,
    including newline-separated forms. Regex comment stripper retained only as
    a fallback for non-DOMParser environments.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1493,8 +1493,12 @@ async function resolveOneballApi(pageUrl) {
   const eventId = match[1];
   const apiUrl = `https://oneball.live/api/live/${eventId}.json`;
   try {
-    const res = await fetchProxied(apiUrl);
-    const data = JSON.parse(res);
+    // OneBall explicitly enables CORS on this JSON endpoint. Do not send it
+    // through the public proxy rotation: a failed proxy can hold startup in
+    // the Initializing state while all proxy attempts time out.
+    const res = await fetchWithTimeout(apiUrl, 10000, { cache: 'no-store', credentials: 'omit' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
     const signals = Array.isArray(data?.signals) ? data.signals : [];
     const results = [];
     const seen = new Set();
