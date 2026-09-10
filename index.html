@@ -376,12 +376,15 @@ const CFG = {
   EVENT_SAMPLE_MS: 4000,
   SANDBOX: 'allow-forms allow-pointer-lock allow-same-origin allow-scripts allow-top-navigation',
   PROXY: [
+    // corsproxy.org currently returns the complete Blogger HTML, including
+    // the live manifest and ClearKey block needed by mora extraction.
+    u => `https://corsproxy.org/?${u}`,
     u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ],
-  PSCORE: [0, 0, 0],
-  PROXY_NAMES: ['corsproxy.io', 'codetabs.com', 'allorigins.win'],
+  PSCORE: [0, 0, 0, 0],
+  PROXY_NAMES: ['corsproxy.org', 'corsproxy.io', 'codetabs.com', 'allorigins.win'],
   SELF_CTRL: new Set(['jwplayer', 'embed']),
   LABELS: [
     { name: 'HD 1', icon: '📺' }, { name: 'Full HD', icon: '🎯' }, { name: 'Backup', icon: '🔄' },
@@ -1621,19 +1624,6 @@ async function resolveStream(url) {
     GA.send('stream_resolve_success', { stream_type: 'hls', resolve_ms: Date.now() - t0, method: 'direct' });
     return r;
   }
-
-  // SamuraiTV Blogger pages are already complete player pages. Loading them
-  // directly in the embed manager avoids the unavailable public CORS proxies
-  // and prevents mora initialization from waiting through proxy timeouts.
-  try {
-    const pageHost = new URL(url).hostname.toLowerCase();
-    if (pageHost === 'live.samuraitv.biz.id' && /\/p\//i.test(new URL(url).pathname)) {
-      const r = { type: 'embed', url, embedUrls: [url], originalUrl, customLabel: 'SamuraiTV' };
-      cSet(ck, r);
-      GA.send('stream_resolve_success', { stream_type: 'embed', resolve_ms: Date.now() - t0, method: 'samuraitv_direct_embed' });
-      return r;
-    }
-  } catch {}
 
   if (/\.mpd([?&#]|$)/i.test(url)) {
     let drm = null;
