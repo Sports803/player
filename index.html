@@ -334,11 +334,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
 'use strict';
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Live Stream Player — hardened build
-   Fixes: dead showError, Safari lookbehind, retry counter reset, iframe
+   Live Stream Player — hardened build (v3)
+   ───────────────────────────────────────────────────────────────────────────
+   v2 fixes: dead showError, Safari lookbehind, retry counter reset, iframe
    clone false-load, keyboard focus escape, fallback button, DRM adapter
    filter, autoplay block, health monitor math, XSS in score overlay,
    sendBeacon duplication, TDZ guards, Plyr double-destroy, and 30 others.
+
+   v3 fixes: DOMParser-based extraction so commented-out <script> blocks on
+   Blogger/Blogspot pages (like live.samuraitv.biz.id) can no longer leak
+   stale manifest URLs into the active source list. Adds proper handling of
+   Shaka `<script>…const streamUrl = "…mpd"…</script>` and clearKeys block,
+   including newline-separated forms. Regex comment stripper retained only as
+   a fallback for non-DOMParser environments.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const _ooe = window.onerror;
@@ -393,7 +401,7 @@ const streamLabel = i => {
 };
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-/* ── Hoisted state (must use var so early GA calls see 'undefined' not TDZ) ── */
+/* ── Hoisted state (var so early GA calls see 'undefined' not TDZ) ── */
 var appState = 'idle';
 var curIdx = 0;
 var curStream = null;
@@ -446,7 +454,6 @@ const ThumbMgr = (() => {
   const bg = document.getElementById('thumb-bg');
   function init() {
     if (!thumbP || !safe(thumbP)) return;
-    bg.style.backgroundImage = `url(${CSS.escape ? JSON.stringify(thumbP) : thumbP})`;
     bg.style.backgroundImage = `url("${thumbP.replace(/"/g, '%22')}")`;
     bg.classList.add('on');
   }
@@ -455,9 +462,8 @@ const ThumbMgr = (() => {
   return { init, show, hide };
 })();
 
-/* ── GA4 (samples high-frequency events, snapshots dims, no hand-rolled beacon) ── */
+/* ── GA4 (sampled high-frequency events, snapshotted dims, no hand-rolled beacon) ── */
 const GA = (() => {
-  const TID = 'G-DPV3GTWK0P';
   const _t0 = Date.now();
   let _visibleMs = 0, _lastVisibleAt = Date.now(), _hidden = false;
   let _firstPlayAt = null;
@@ -473,7 +479,6 @@ const GA = (() => {
   function _device() { const ua = navigator.userAgent; if (/tablet|ipad/i.test(ua)) return 'tablet'; if (/mobile|android|iphone/i.test(ua)) return 'mobile'; return 'desktop'; }
   function _conn() { const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection; if (!c) return 'unknown'; return c.effectiveType || c.type || 'unknown'; }
   function _dims() {
-    // Prefer snapshot captured at stream-start to avoid per-event re-reads and TDZ hazards.
     if (_dimsSnapshot) return _dimsSnapshot;
     return { stream_index: 0, stream_name: 'none', adapter_name: 'none', stream_type: 'none', app_state: 'idle' };
   }
@@ -506,7 +511,7 @@ const GA = (() => {
     else { _hidden = false; _lastVisibleAt = now; send('tab_visible'); }
   });
 
-  // No manual sendBeacon — gtag config already uses transport_type:'beacon'.
+  // No manual sendBeacon — gtag config uses transport_type:'beacon'.
   window.addEventListener('beforeunload', () => {
     send('session_end', {
       session_sec: _sessionSec(), visible_sec: _visibleSec(), watch_sec: Perf.sec(),
@@ -685,7 +690,7 @@ function showTapToPlay() { D.tapPlay.classList.add('on'); D.tapPlay.setAttribute
 function hideTapToPlay() { D.tapPlay.classList.remove('on'); D.tapPlay.setAttribute('aria-hidden', 'true'); }
 D.tapPlayBtn.addEventListener('click', async () => {
   hideTapToPlay();
-  if (curPlayer instanceof HTMLMediaElement) { try { curPlayer.muted = false; await curPlayer.play(); } catch { /* */ } }
+  if (curPlayer instanceof HTMLMediaElement) { try { curPlayer.muted = false; await curPlayer.play(); } catch {} }
 });
 D.tapPlay.addEventListener('click', e => { if (e.target === D.tapPlay) D.tapPlayBtn.click(); });
 
@@ -743,7 +748,6 @@ function showError(rawErr = '') {
   Perf.errors++;
   const fallbackIdx = streams.findIndex(s => s.isFallback);
 
-  // If we're already on the fallback and it failed, jump straight to the hard-stop screen.
   if (curStream?.isFallback) { showFallback('fallback_failed'); return; }
 
   const f = friendly(rawErr);
@@ -770,18 +774,16 @@ function showError(rawErr = '') {
   appState = 'error';
   setLoading(false);
   ThumbMgr.show();
-  clearHost(); // now safe — the panel is visible and the user has controls back
+  clearHost();
 
   GA.send('error_shown', {
     error_title: f.ttl, error_raw: String(rawErr).slice(0, 150),
     retries_remaining: rem, watch_sec_before_error: Perf.sec(),
   });
   startAutoNextSwitch();
-  // Focus management: move focus into the dialog.
   setTimeout(() => { try { D.btnRetry.focus(); } catch {} }, 60);
 }
 
-// Runtime media errors (fired by <video>/<audio> elements): only surface while playing.
 document.addEventListener('error', e => {
   const media = e.target;
   if (!(media instanceof HTMLMediaElement) || !curStream || curStream.isFallback || appState !== 'playing') return;
@@ -827,7 +829,7 @@ function setQuality(items, handler) {
   });
   sel.classList.remove('hidden');
   qualH = v => { if (items[v]) handler(items[v].value ?? v); else handler(v); };
-  if (Prefs.getLowData() && qualH) qualH(items.length - 1); // lowest quality last by convention
+  if (Prefs.getLowData() && qualH) qualH(items.length - 1);
   GA.send('quality_levels_available', { levels_count: items.length, levels_list: items.map(i => i.label).join(',') });
 }
 function hideQuality() { D.qualSel.classList.add('hidden'); qualH = null; }
@@ -874,7 +876,6 @@ function buildBtns(list) {
     }
     const nameSpan = document.createElement('span'); nameSpan.textContent = label; btn.appendChild(nameSpan);
 
-    // Long-press on touch / right-click on desktop opens raw URL in a new tab.
     const openRaw = () => { if (s.url && safe(s.url)) window.open(s.url, '_blank', 'noopener,noreferrer'); };
     btn.addEventListener('contextmenu', e => { e.preventDefault(); openRaw(); });
     let _lpt = null;
@@ -932,13 +933,12 @@ function clearHost() {
   hideQuality();
 }
 
-/* ── Plyr (lazily loaded, async wrapper) ── */
+/* ── Plyr (lazily loaded) ── */
 let _plyrReady = null;
 function ensurePlyr() {
   if (_plyrReady) return _plyrReady;
   _plyrReady = (async () => {
     if (typeof Plyr !== 'undefined') return;
-    // CSS first (fire-and-forget), then JS
     const css = document.createElement('link');
     css.rel = 'stylesheet'; css.href = 'https://cdn.plyr.io/3.7.8/plyr.css';
     document.head.appendChild(css);
@@ -995,10 +995,6 @@ function newVid(a = {}) {
   });
   return v;
 }
-/**
- * Attempts to play. On NotAllowedError (autoplay blocked), mutes and retries once,
- * and if that fails shows the tap-to-play overlay and returns 'blocked'.
- */
 async function safePlay(v) {
   try { await v.play(); return 'playing'; }
   catch (e) {
@@ -1036,7 +1032,7 @@ async function fetchProxied(url) {
   throw last || new Error('All proxies failed');
 }
 
-/* ── Cache (per-type TTL) ── */
+/* ── Cache (per-type TTL, DRM keys never persisted) ── */
 function cGet(k) {
   try {
     const r = sessionStorage.getItem(k);
@@ -1044,14 +1040,12 @@ function cGet(k) {
     const p = JSON.parse(r);
     const ttl = p._ttl || CFG.CACHE_TTL.default;
     if (Date.now() - (p._at || 0) > ttl) { sessionStorage.removeItem(k); return null; }
-    // Never trust DRM keys from storage
     if (p.drm) delete p.drm;
     return p;
   } catch { return null; }
 }
 function cSet(k, v) {
   try {
-    // Strip DRM keys before persisting
     const clean = { ...v, _at: Date.now() };
     if (clean.drm) delete clean.drm;
     clean._ttl = v.type === 'embed' ? CFG.CACHE_TTL.embed : CFG.CACHE_TTL.manifest;
@@ -1060,133 +1054,307 @@ function cSet(k, v) {
 }
 function cDel(k) { try { sessionStorage.removeItem(k); } catch {} }
 
-/* ── Stream extraction ────────────────────────────────────────────────────
- * Strips comments once, then scans active code for config blobs, manifest
- * variables, JWPlayer setups and hex key pairs. No lookbehind (Safari-safe).
- * ─────────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Stream extraction — v3 (DOMParser-based, comment-safe)
+   ───────────────────────────────────────────────────────────────────────────
+   Blogspot / Blogger pages like live.samuraitv.biz.id embed a large
+   commented-out Shaka <script> block (with a stale manifest URL) *inside*
+   the post body, followed by the live player <script>. Regex-based HTML
+   comment stripping was fragile enough to occasionally leak the commented
+   URL into the active source list, causing the resolver to pick the wrong
+   Akamai node.
 
+   Fix: use DOMParser (available in every browser shipped since IE10) to
+   parse the HTML properly. The browser's HTML5 parser never surfaces text
+   from inside `<!-- -->` comments as `<script>.textContent`, so we get a
+   guaranteed comment-free source list. Regex-based `_stripComments` is
+   retained as a fallback for environments without DOMParser.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/** Strip HTML comments and single-line JS comments from raw HTML.
+ *  NOTE: only used as a fallback when DOMParser is unavailable. */
 function _stripComments(html) {
   // 1. Remove HTML comments.
-  let s = html.replace(/<!--[\s\S]*?-->/g, '');
-  // 2. Remove `//` line comments that are NOT preceded by `:` or `/`.
-  //    The capture group preserves the leading character (avoids breaking http:// and //path).
+  let s = String(html).replace(/<!--[\s\S]*?-->/g, '');
+  // 2. Remove `//` line comments not preceded by `:` or `/`.
+  //    No lookbehind — Safari < 16.4 would throw a SyntaxError at parse time.
   s = s.replace(/(^|[^:\/])\/\/[^\n\r]*/g, '$1');
   return s;
 }
 
+/** Validate a 32-char hex ClearKey pair. Rejects all-zero or repeated patterns. */
 function _validKeyPair(keyId, key) {
   if (!keyId || !key) return false;
   if (keyId.length !== 32 || key.length !== 32) return false;
   if (keyId === '0'.repeat(32) || key === '0'.repeat(32)) return false;
   if (/^(.)\1+$/.test(keyId) || /^(.)\1+$/.test(key)) return false;
+  if (!/^[0-9a-fA-F]{32}$/.test(keyId) || !/^[0-9a-fA-F]{32}$/.test(key)) return false;
   return true;
 }
 
-function extractCK(html, alreadyStripped = false) {
-  const active = alreadyStripped ? html : _stripComments(html);
+/**
+ * Parse the HTML once via DOMParser and pull out:
+ *   scriptText  — concatenated textContent of all LIVE <script> elements.
+ *                 Commented-out <script> blocks are NOT included by the
+ *                 HTML5 parser, so this is safe from stale-URL leakage.
+ *   iframeSrcs  — src= attributes of live <iframe> elements (safe URLs only).
+ *   doc         — the parsed Document, for callers that want to query.
+ *   ok          — true if DOMParser succeeded and returned a document.
+ */
+function _extractPageSources(html) {
+  const out = { scriptText: '', iframeSrcs: [], doc: null, ok: false };
+  if (typeof DOMParser === 'undefined') return out;
+  let doc = null;
+  try { doc = new DOMParser().parseFromString(String(html), 'text/html'); }
+  catch (e) { console.warn('[parser] DOMParser failed:', e); return out; }
+  if (!doc) return out;
+  out.doc = doc;
+  out.ok = true;
 
-  const shakaRe = /clearKeys\s*:\s*{[^}]{0,400}}/gi;
+  try {
+    const scripts = doc.querySelectorAll('script');
+    let buf = '';
+    for (const s of scripts) {
+      const t = s.textContent || '';
+      if (!t.trim()) continue;
+      buf += t + '\n';
+    }
+    out.scriptText = buf;
+  } catch (e) { console.warn('[parser] script scan failed:', e); }
+
+  try {
+    const frames = doc.querySelectorAll('iframe[src]');
+    const seen = new Set();
+    for (const fr of frames) {
+      const src = (fr.getAttribute('src') || '').replace(/&amp;/g, '&').trim();
+      if (!src || seen.has(src)) continue;
+      if (!safe(src)) continue;
+      if (src.includes('blogger.com') || src.includes('google.com')) continue;
+      seen.add(src);
+      out.iframeSrcs.push(src);
+    }
+  } catch (e) { console.warn('[parser] iframe scan failed:', e); }
+
+  return out;
+}
+
+/**
+ * Extract a ClearKey DRM pair from a text source.
+ * @param source       Text to scan.
+ * @param alreadyClean Set true if the source has already had comments
+ *                     stripped (i.e. it came from DOMParser script text).
+ *                     When false, `_stripComments` is applied first.
+ */
+function extractCK(source, alreadyClean = false) {
+  if (!source) return null;
+  const active = alreadyClean ? source : _stripComments(source);
+
+  // 1. Shaka clearKeys: { "keyId32hex": "key32hex" } — allows newlines.
+  const shakaRe = /clearKeys\s*:\s*\{[\s\S]{0,600}?\}/gi;
   let sm;
   while ((sm = shakaRe.exec(active)) !== null) {
     const pair = sm[0].match(/"([0-9a-fA-F]{32})"\s*:\s*"([0-9a-fA-F]{32})"/);
     if (pair && _validKeyPair(pair[1], pair[2])) return { keyId: pair[1], key: pair[2] };
+    // Tolerate unquoted or single-quoted forms.
+    const loose = sm[0].match(/['"]?([0-9a-fA-F]{32})['"]?\s*:\s*['"]?([0-9a-fA-F]{32})['"]?/);
+    if (loose && _validKeyPair(loose[1], loose[2])) return { keyId: loose[1], key: loose[2] };
   }
 
-  const jwBlockRe = /clearkey\s*:\s*{([^}]{0,600})}/gi;
+  // 2a. JWPlayer / config  drm: { clearkey: { keyId:"…", key:"…" } }
+  const jwBlockRe = /clearkey\s*:\s*\{[\s\S]{0,800}?\}/gi;
   let jm;
   while ((jm = jwBlockRe.exec(active)) !== null) {
-    const block = jm[1];
-    const idM = block.match(/keyId\s*["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
+    const block = jm[0];
+    const idM  = block.match(/keyId\s*["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
     const keyM = block.match(/\bkey\s*["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
     if (idM && keyM && _validKeyPair(idM[1], keyM[1])) return { keyId: idM[1], key: keyM[1] };
   }
 
-  const idMatch = active.match(/["']?keyId["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
+  // 2b. Flat named fields.
+  const idMatch  = active.match(/["']?keyId["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
   const keyMatch = active.match(/\b["']?key["']?\s*:\s*["']([0-9a-fA-F]{32})["']/i);
-  if (idMatch && keyMatch && _validKeyPair(idMatch[1], keyMatch[1])) return { keyId: idMatch[1], key: keyMatch[1] };
+  if (idMatch && keyMatch && _validKeyPair(idMatch[1], keyMatch[1])) {
+    return { keyId: idMatch[1], key: keyMatch[1] };
+  }
 
+  // 3. Generic hex-pair fallback — allows newlines between `:` and value.
   const pairRe = /"([0-9a-fA-F]{32})"\s*:\s*"([0-9a-fA-F]{32})"/g;
   let pm;
-  while ((pm = pairRe.exec(active)) !== null) if (_validKeyPair(pm[1], pm[2])) return { keyId: pm[1], key: pm[2] };
+  while ((pm = pairRe.exec(active)) !== null) {
+    if (_validKeyPair(pm[1], pm[2])) return { keyId: pm[1], key: pm[2] };
+  }
 
   return null;
 }
 
+/**
+ * Extract { streamUrl, drm } or { isEmbed, streamUrl, embedUrls } from an HTML page.
+ *
+ * Source priority:
+ *   1. DOMParser script text (comment-free, entity-decoded) — the safe path.
+ *   2. HTML with comments stripped (regex fallback).
+ *
+ * This ordering is why the commented-out Shaka block on SamuraiTV pages can
+ * no longer shadow the live `const streamUrl = "…mpd"` declaration.
+ */
 function extractMfst(html) {
-  const active = _stripComments(html); // strip ONCE
-  let url = null, drm = null;
+  if (!html || typeof html !== 'string') return null;
 
-  const configVarRe = /(?:var|const|let)\s+config\s*=\s*({[\s\S]{0,2000}?})\s*;/;
-  const cvM = configVarRe.exec(active);
-  if (cvM) {
+  const page = _extractPageSources(html);
+  const scriptText = page.scriptText || '';
+  const strippedHtml = _stripComments(html);
+
+  const sources = [];
+  if (scriptText.trim()) sources.push(scriptText);
+  if (strippedHtml && strippedHtml !== scriptText) sources.push(strippedHtml);
+  if (!sources.length) sources.push(html);
+
+  let url = null;
+  let drm = null;
+
+  // Helper: run a regex factory against every source, return first safe hit.
+  const tryPattern = (regexFactory) => {
+    for (const src of sources) {
+      const re = regexFactory();
+      const m = re.exec(src);
+      if (!m) continue;
+      const candidate = (m.length > 1 ? m[1] : m[0]) || '';
+      if (candidate && safe(candidate)) return candidate;
+    }
+    return null;
+  };
+
+  // ── N1. JSON config: `const config = { "file":"…", "drm":{…} }` ──
+  const configVarRe = /(?:var|const|let)\s+config\s*=\s*(\{[\s\S]{0,3000}?\})\s*;?/;
+  for (const src of sources) {
+    const cvM = configVarRe.exec(src);
+    if (!cvM) continue;
     try {
       const cfg = JSON.parse(cvM[1]);
       const candidate = cfg.file || cfg.src || cfg.url || cfg.stream || cfg.source;
       if (candidate && safe(candidate)) {
         url = candidate;
         const ck = cfg.drm?.clearkey || cfg.drm?.clearKey || cfg.drm?.ClearKey;
-        if (ck && ck.keyId && ck.key && _validKeyPair(ck.keyId, ck.key)) drm = { keyId: ck.keyId, key: ck.key };
+        if (ck && ck.keyId && ck.key && _validKeyPair(ck.keyId, ck.key)) {
+          drm = { keyId: ck.keyId, key: ck.key };
+        }
         const cks = cfg.drm?.clearKeys || cfg.drm?.clearkeys;
         if (!drm && cks && typeof cks === 'object') {
-          for (const [k, v] of Object.entries(cks)) if (_validKeyPair(k, v)) { drm = { keyId: k, key: v }; break; }
+          for (const [k, v] of Object.entries(cks)) {
+            if (_validKeyPair(k, v)) { drm = { keyId: k, key: v }; break; }
+          }
         }
+        break;
       }
-    } catch {}
+    } catch { /* not valid JSON — keep going */ }
   }
 
+  // ── N2. Named manifest variable, tolerating newlines around `=` ──
+  //       Handles: `const streamUrl =\n  "https://…mpd";`
   if (!url) {
-    const VN = ['manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url','youtube_theme_manifestUri','streamUrl','streamURL','stream_url','hlsUrl','hlsURL','hls_url','dashUrl','dashURL','dash_url','videoUrl','videoURL','video_url','sourceUrl','sourceURL','source_url','liveUrl','liveURL','live_url','channelUrl','channel_url','streamSrc','stream_src','videoSrc','video_src','mediaSrc','media_src','playbackUrl','playback_url','linkStream','link_stream','urlStream','url_stream','srcStream','playerUrl','player_url','contentUrl','content_url'];
-    const varRe = new RegExp('(?:const|var|let)\\s+(?:' + VN.join('|') + ')\\s*=\\s*[\'"`]([^\'"` ]+)[\'"`]', 'i');
-    let m = varRe.exec(active);
-    if (m && safe(m[1])) url = m[1];
-    if (!url) {
-      const assignRe = new RegExp('(?:' + VN.join('|') + ')\\s*=\\s*[\'"`]([^\'"` ]+)[\'"`]', 'i');
-      m = assignRe.exec(active);
-      if (m && safe(m[1])) url = m[1];
+    const VN = [
+      'manifestUri','manifestUrl','manifestURL','manifest_uri','manifest_url',
+      'youtube_theme_manifestUri',
+      'streamUrl','streamURL','stream_url',
+      'hlsUrl','hlsURL','hls_url',
+      'dashUrl','dashURL','dash_url',
+      'videoUrl','videoURL','video_url',
+      'sourceUrl','sourceURL','source_url',
+      'liveUrl','liveURL','live_url',
+      'channelUrl','channel_url',
+      'streamSrc','stream_src','videoSrc','video_src','mediaSrc','media_src',
+      'playbackUrl','playback_url',
+      'linkStream','link_stream','urlStream','url_stream','srcStream',
+      'playerUrl','player_url','contentUrl','content_url',
+    ];
+    const VN_ALT = VN.join('|');
+    const assignRe = new RegExp(
+      '(?:const|var|let)\\s+(?:' + VN_ALT + ')\\s*=\\s*[\'"`](https?://[^\'"`\\s]+)[\'"`]',
+      'i'
+    );
+    const propRe = new RegExp(
+      '(?:^|[\\s;{,(])(?:' + VN_ALT + ')\\s*[=:]\\s*[\'"`](https?://[^\'"`\\s]+)[\'"`]',
+      'i'
+    );
+    url = tryPattern(() => assignRe) || tryPattern(() => propRe);
+  }
+
+  // ── N3. JWPlayer .setup({ file:"…" }) ──
+  if (!url) {
+    url = tryPattern(() => /\.setup\s*\(\s*\{[\s\S]{0,3000}?\bfile\s*:\s*["'`](https?:\/\/[^"'`\s]+)["'`]/i);
+  }
+
+  // ── N4. Generic .load() / .loadSource() / .loadManifest() with URL ──
+  if (!url) {
+    url = tryPattern(() => /\.(?:load|loadSource|loadManifest)\s*\(\s*[`'"](https?:\/\/[^`'"]+)[`'"]/i);
+  }
+
+  // ── N5. Literal `file:` with manifest extension ──
+  if (!url) {
+    url = tryPattern(() => /\bfile\s*:\s*["'`](https?:\/\/[^"'`\s]+\.(?:m3u8|mpd)[^"'`\s]*)/i);
+  }
+
+  // ── N6. src / source attribute with manifest extension ──
+  if (!url) {
+    url = tryPattern(() => /(?:src|source)\s*[=:]\s*["'`](https?:\/\/[^"'`\s]+\.(?:m3u8|mpd)[^"'`\s]*)/i);
+  }
+
+  // ── N7. JSON-style "file":"https://…mpd" ──
+  if (!url) {
+    url = tryPattern(() => /"(?:file|src|source|url)"\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mpd)[^"]*)"/i);
+  }
+
+  // ── N8. <video|source src="…mpd"> ──
+  if (!url) {
+    url = tryPattern(() => /<(?:video|source)[^>]+(?:data-)?src=["']([^"']+\.(?:m3u8|mpd)[^"']*)['"]/i);
+  }
+
+  // ── N9. atob("base64url") ──
+  if (!url) {
+    for (const src of sources) {
+      const b64re = /atob\s*\(\s*["']([A-Za-z0-9+/=_-]{30,})["']\s*\)/g;
+      let bm;
+      while ((bm = b64re.exec(src)) !== null) {
+        try {
+          const d = b64Decode(bm[1]);
+          if (/^https?:\/\//i.test(d) && safe(d)) { url = d; break; }
+        } catch {}
+      }
+      if (url) break;
     }
   }
 
-  if (!url) {
-    const jwM = /\.setup\s*\(\s*{[^}]{0,2000}\bfile\s*:\s*["'`](https?:\/\/[^"'`\s]+)["'`]/i.exec(active);
-    if (jwM && safe(jwM[1])) url = jwM[1];
-  }
-  if (!url) { const m = active.match(/\.(?:load|loadSource|loadManifest)\s*\(\s*[`'"]([^`'"]+)[`'"]/i); if (m && safe(m[1])) url = m[1]; }
-  if (!url) { const m = active.match(/file\s*:\s*["'`](https?:\/\/[^"'`\s]+\.(?:m3u8|mpd)[^"'`\s]*)/i); if (m && safe(m[1])) url = m[1]; }
-  if (!url) { const m = active.match(/(?:src|source)\s*[=:]\s*["'`](https?:\/\/[^"'`\s]+\.(?:m3u8|mpd)[^"'`\s]*)/i); if (m && safe(m[1])) url = m[1]; }
-  if (!url) { const m = active.match(/"(?:file|src|source|url)"\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mpd)[^"]*)"/i); if (m && safe(m[1])) url = m[1]; }
-  if (!url) { const b = active.match(/<(?:video|source)[^>]+(?:data-)?src=["']([^"']+\.(?:m3u8|mpd)[^"']*)['"]/i); if (b && safe(b[1])) url = b[1]; }
-  if (!url) {
-    const b64 = /atob\s*\(\s*["']([A-Za-z0-9+/=_-]{30,})["']\s*\)/g;
-    let bm;
-    while ((bm = b64.exec(active)) !== null) {
-      try { const d = b64Decode(bm[1]); if (/^https?:\/\//i.test(d) && safe(d)) { url = d; break; } } catch {}
-    }
-  }
-  if (!url) { const m = active.match(/https?:\/\/[^\s"'`<>\\]+\.m3u8[^\s"'`<>\\]*/); if (m) url = m[0]; }
-  if (!url) { const m = active.match(/https?:\/\/[^\s"'`<>\\]+\.mpd[^\s"'`<>\\]*/); if (m) url = m[0]; }
-  if (!url) { const m = active.match(/file\s*:\s*['"](https?:\/\/[^'"]+)['"]/i); if (m && safe(m[1])) url = m[1]; }
+  // ── N10. Bare manifest URL ──
+  if (!url) url = tryPattern(() => /https?:\/\/[^\s"'`<>\\]+\.m3u8[^\s"'`<>\\]*/i);
+  if (!url) url = tryPattern(() => /https?:\/\/[^\s"'`<>\\]+\.mpd[^\s"'`<>\\]*/i);
 
-  // Inline iframe fallback — scan original html so we keep the real src attribute.
+  // ── N11. iframe fallback (from live DOM only, never from comments) ──
   if (!url) {
-    const ir = /<iframe[^>]+src=["']([^"']+)["']/gi;
-    const embs = [];
-    let em;
-    while ((em = ir.exec(html)) !== null) {
-      const c = em[1].replace(/&amp;/g, '&').trim();
-      if (safe(c) && !c.includes('blogger.com') && !c.includes('google.com')) embs.push(c);
+    let srcs = page.iframeSrcs || [];
+    if (!srcs.length) {
+      const ir = /<iframe[^>]+src=["']([^"']+)["']/gi;
+      let em;
+      const out = [];
+      const seen = new Set();
+      while ((em = ir.exec(html)) !== null) {
+        const c = em[1].replace(/&amp;/g, '&').trim();
+        if (!c || seen.has(c)) continue;
+        if (safe(c) && !c.includes('blogger.com') && !c.includes('google.com')) { seen.add(c); out.push(c); }
+      }
+      srcs = out;
     }
-    if (embs.length) return { streamUrl: embs[0], drm: null, isEmbed: true, embedUrls: embs };
+    if (srcs.length) return { streamUrl: srcs[0], drm: null, isEmbed: true, embedUrls: srcs };
   }
 
   if (!url) return null;
 
-  // Inline !! DRM separator — documented in the config docs; retained for compat.
+  // ── Inline !! DRM separator (documented syntax: url!!keyId:key) ──
   if (url.includes('!!')) {
     const si = url.indexOf('!!');
     const mu = url.slice(0, si);
     const kp = url.slice(si + 2);
     const isDash = /\.mpd([?&#]|$)/i.test(mu);
-    const isHls = /\.m3u8([?&#]|$)/i.test(mu);
+    const isHls  = /\.m3u8([?&#]|$)/i.test(mu);
     if ((isDash || isHls) && kp.includes(':')) {
       const ci = kp.indexOf(':');
       drm = { keyId: kp.slice(0, ci), key: kp.slice(ci + 1) };
@@ -1194,11 +1362,14 @@ function extractMfst(html) {
     }
   }
 
-  if (!drm) drm = extractCK(active, true);
+  // ── DRM extraction — script text first (comment-safe) ──
+  if (!drm && scriptText.trim()) drm = extractCK(scriptText, true);
+  if (!drm) drm = extractCK(strippedHtml, true);
   if (!drm) drm = extractCK(html, false);
 
   return { streamUrl: url, drm };
 }
+/* ── End extraction ─────────────────────────────────────────────────────── */
 
 async function withR(fn, n = CFG.MAX_RETRY, d = 800) {
   for (let i = 0; i <= n; i++) {
@@ -1314,7 +1485,7 @@ async function resolveKafeizhiboRecording(url) {
   }
 }
 
-/* ── Oneball.live resolver (API now goes through proxy) ── */
+/* ── Oneball.live resolver (API now via proxy chain) ── */
 async function resolveOneballApi(pageUrl) {
   if (!safe(pageUrl)) return [];
   const match = pageUrl.match(/\/live\/(\d+)(?:\.html)?(?:[?#]|$)/i);
@@ -1508,7 +1679,7 @@ const HealthMon = (() => {
     const edge = _getLiveEdge(v);
     if (edge !== null) {
       const drift = edge - ct;
-      if (drift > 3) { D.latencyBadge.innerHTML = `<span style="color:var(--red)" aria-hidden="true">🔴</span> ${Math.round(drift)}s behind live`; D.latencyBadge.classList.add('on'); }
+      if (drift > 3) { D.latencyBadge.textContent = `🔴 ${Math.round(drift)}s behind live`; D.latencyBadge.classList.add('on'); }
       else D.latencyBadge.classList.remove('on');
       D.jumpLiveBtn.classList.toggle('on', drift > CFG.LATENCY_WARN);
     } else {
@@ -1516,7 +1687,6 @@ const HealthMon = (() => {
       D.jumpLiveBtn.classList.remove('on');
     }
 
-    // Stall detection: N consecutive ticks with no progress AND no seek = real stall.
     if (Math.abs(ct - _lastTime) < 0.1 && !v.seeking) {
       _stallTicks++;
       if (_stallTicks >= 1) setHealthDot(_idx, 'amber');
@@ -1686,7 +1856,6 @@ const ScoreBoard = (() => {
     const goalFlash = scoreStr !== _prevScore && _prevScore !== '';
     _prevScore = scoreStr;
 
-    // Badge
     r.badge.className = 'sc-badge';
     if (m.state === 'in') {
       if (m.isHT) { r.badge.classList.add('ht'); r.badge.textContent = 'HT'; }
@@ -1696,16 +1865,13 @@ const ScoreBoard = (() => {
     } else if (m.state === 'post') { r.badge.classList.add('ft'); r.badge.textContent = 'FT'; }
     else { r.badge.classList.add('ft'); r.badge.textContent = 'PRE'; }
 
-    // Teams
     r.homeName.textContent = m.homeTeam;
     r.awayName.textContent = m.awayTeam;
     if (m.homeLogo && safe(m.homeLogo)) { r.homeLogo.src = m.homeLogo; r.homeLogo.style.display = ''; } else r.homeLogo.style.display = 'none';
     if (m.awayLogo && safe(m.awayLogo)) { r.awayLogo.src = m.awayLogo; r.awayLogo.style.display = ''; } else r.awayLogo.style.display = 'none';
 
-    // Score
     r.score.textContent = `${m.homeScore} – ${m.awayScore}`;
 
-    // Clock
     if (m.state === 'in' && !m.isHT) {
       const disp = _clockRunning ? _secsToDisplay(_localClock) : m.clock;
       r.clock.textContent = `${disp}'`;
@@ -1800,8 +1966,7 @@ const EmbedMgr = (() => {
     _t0 = Date.now();
     GA.send('embed_attempt', { source_index: idx, source_count: _s.length, embed_url: url.slice(0, 80) });
 
-    // Rebuild iframe from scratch — cloning carries `about:blank` as src and
-    // fires a spurious `load` event before the real navigation.
+    // Rebuild iframe from scratch — cloning carries `about:blank` as src.
     const old = D.embedFrame;
     const fr = document.createElement('iframe');
     fr.id = 'embed-frame';
@@ -1844,8 +2009,6 @@ const EmbedMgr = (() => {
       GA.snapshotDims();
       GA.startMilestones();
       setHealthDot(curIdx, 'green');
-      // No DOM inspection — cross-origin iframes can't be read, and same-origin
-      // inspection is a sandbox smell. Rely on load + postMessage + timeouts.
     }, { once: true });
     fr.addEventListener('error', function oe() {
       fr.removeEventListener('error', oe);
@@ -1861,7 +2024,6 @@ const EmbedMgr = (() => {
       } else _allExhausted();
     }, { once: true });
   }
-  // Optional: embeds that cooperate can postMessage { type:'sp:ready' } to confirm.
   window.addEventListener('message', e => {
     const d = e.data;
     if (d && typeof d === 'object' && d.type === 'sp:ready' && appState === 'loading') {
@@ -1912,7 +2074,7 @@ const ADAPTERS = [
   },
   {
     name: 'jwplayer', pri: 1, supportsDrm: true,
-    supports: () => typeof jwplayer !== 'undefined' || true, // load() pulls it in
+    supports: () => true, // load() pulls the library in
     async load() { await loadSc('https://cdn.jwplayer.com/libraries/IDzF9Zmk.js'); },
     init(hid, s) {
       return withTO(new Promise((res, rej) => {
@@ -2043,7 +2205,6 @@ const ADAPTERS = [
           wrapPlyr(v, plyrOpts).then(pl => {
             if (pl) { curPlyr = pl; instances.push(pl); }
             hideQuality();
-            // Jump to live edge on start
             if (h.liveSyncPosition) { try { v.currentTime = h.liveSyncPosition; } catch {} }
             safePlay(v);
             res();
@@ -2161,7 +2322,6 @@ async function playStream(stream, gen) {
 
   D.host.style.display = 'block';
 
-  // Adapter filtering: DRM streams only go to DRM-capable adapters.
   let cands = ADAPTERS.filter(a => {
     try {
       if (stream.drm && !a.supportsDrm) return false;
@@ -2169,7 +2329,6 @@ async function playStream(stream, gen) {
     } catch { return false; }
   });
 
-  // Type-aware ordering
   const order = CFG.ADAPTER_ORDER[stream.type] || [];
   cands.sort((a, b) => {
     const ai = order.indexOf(a.name); const bi = order.indexOf(b.name);
@@ -2248,7 +2407,6 @@ async function playStream(stream, gen) {
 /* ── Fallback screen ── */
 function showFallback(reason = 'all_failed') {
   const fallbackIdx = streams.findIndex(s => s.isFallback);
-  // If the fallback itself failed, show the terminal message and offer a retry.
   if (curStream?.isFallback && reason === 'fallback_failed') {
     GA.stopMilestones();
     clearHost();
@@ -2323,8 +2481,6 @@ async function loadStreams() {
     result.unshift(...hls, ...oth);
   } else result.unshift(...mora);
 
-  // Append fallback once at init so it appears in the button strip and never
-  // mutates `streams` mid-navigation.
   if (CFG.FALLBACK_URL && safe(CFG.FALLBACK_URL)) {
     result.push({ type: 'hls', url: CFG.FALLBACK_URL, originalUrl: CFG.FALLBACK_URL, customLabel: 'Backup channel', isFallback: true });
   }
@@ -2371,8 +2527,6 @@ async function go(idx) {
   const gen = ++playGen;
   Perf.goT = Date.now();
   Perf.pStart = null;
-  // NOTE: retryCount is NOT reset here — it only resets on a successful start
-  // so MAX_RETRY actually applies. See handleErrorRetry().
   D.btnRefresh.disabled = true;
   setActivBtn(idx);
   try { localStorage.setItem(CFG.STORAGE_KEY, String(idx)); } catch {}
@@ -2380,7 +2534,7 @@ async function go(idx) {
   try { await playStream(curStream, gen); }
   finally {
     if (gen === playGen) { D.btnRefresh.disabled = false; setActivBtn(idx); }
-    if (appState === 'playing') retryCount = 0; // successful start → reset budget
+    if (appState === 'playing') retryCount = 0;
   }
 }
 
@@ -2416,11 +2570,9 @@ const GC = (() => {
 
 /* ── Keyboard (target-aware, Escape closes overlays) ── */
 document.addEventListener('keydown', e => {
-  // Ignore only real text inputs.
   const t = e.target;
   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
 
-  // Escape closes overlays
   if (e.key === 'Escape') {
     if (D.scOverlay.classList.contains('active')) { e.preventDefault(); closeHelp(); return; }
     if (D.errPanel.classList.contains('active')) { e.preventDefault(); hideError(); return; }
@@ -2575,6 +2727,8 @@ return {
   goFallback() { cancelAutoNextSwitch('user_fallback'); GA.send('use_backup_clicked', { trigger: 'embed_error_panel' }); EmbedMgr.unmount(); showFallback('user_requested'); },
   retryEmbed: () => EmbedMgr.retry(),
   nextEmbedSource: () => EmbedMgr.nextSource(),
+  // Debug/QA helper — lets you inspect extraction against any page in DevTools.
+  extractMfst,
 };
 })();
 </script>
