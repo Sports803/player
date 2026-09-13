@@ -1526,7 +1526,25 @@ async function resolveOneballApi(pageUrl) {
   }
 }
 
+function oneballEmbedUrl(streamUrl, title = '') {
+  const url = normalizeStreamUrl(streamUrl);
+  if (!url || !safe(url)) return '';
+  return `https://oneball.live/player/vplayer.html?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title || 'ReplayPlayer')}`;
+}
+
+function oneballReplayId(pageUrl) {
+  const match = pageUrl.match(/\/replay\/(\d+)(?:\.html)?(?:[?#]|$)/i);
+  return match ? match[1] : '';
+}
+
 async function resolveOneball(pageUrl) {
+  // A vplayer URL is already the embeddable player requested by callers.
+  if (/\/player\/vplayer\.html(?:[?#]|$)/i.test(pageUrl)) {
+    const parsed = new URL(pageUrl);
+    const title = parsed.searchParams.get('title') || 'ReplayPlayer';
+    return [{ type: 'embed', url: pageUrl, embedUrls: [pageUrl], originalUrl: pageUrl, customLabel: title }];
+  }
+
   const apiResults = await resolveOneballApi(pageUrl);
   if (apiResults.length) return apiResults;
   if (!safe(pageUrl)) return [];
@@ -1539,8 +1557,9 @@ async function resolveOneball(pageUrl) {
       try {
         const doc = new DOMParser().parseFromString(html, 'text/html');
         const scope = doc.querySelector('.detail-streams') || doc;
-        anchors = [...scope.querySelectorAll('a.stream-btn[href], a[class*="stream-btn"][href]')].map(a => ({
-          href: a.getAttribute('href') || '',
+        anchors = [...scope.querySelectorAll('a.stream-btn[href], a[class*="stream-btn"][href], button.stream-btn[data-url], button[class*="stream-btn"][data-url]')].map(a => ({
+          href: a.getAttribute('href') || a.getAttribute('data-url') || '',
+          playType: (a.getAttribute('data-play-type') || '').toLowerCase(),
           label: (a.textContent || '').trim().replace(/\s+/g, ' '),
         }));
       } catch {}
@@ -1552,6 +1571,11 @@ async function resolveOneball(pageUrl) {
         const label = m[2].replace(/<[^>]+>/g, '').trim().replace(/\s+/g, ' ');
         anchors.push({ href: m[1], label });
       }
+      const buttonRe = /<button[^>]+class=["'][^"']*stream-btn[^"']*["'][^>]*data-url=["']([^"']+)["'][^>]*data-play-type=["']([^"']*)["'][^>]*>([\s\S]*?)<\/button>/gi;
+      while ((m = buttonRe.exec(html)) !== null) {
+        const label = m[3].replace(/<[^>]+>/g, '').trim().replace(/\s+/g, ' ');
+        anchors.push({ href: m[1], playType: m[2].toLowerCase(), label });
+      }
     }
     const seen = new Set();
     const results = [];
@@ -1560,9 +1584,13 @@ async function resolveOneball(pageUrl) {
       if (!decoded || !safe(decoded) || seen.has(decoded)) return;
       seen.add(decoded);
       const label = a.label || `Stream ${results.length + 1}`;
-      results.push({ type: 'embed', url: decoded, embedUrls: [decoded], originalUrl: pageUrl, customLabel: label });
+      const embedUrl = a.playType === 'm3u8' || /\.m3u8(?:[?#]|$)/i.test(decoded)
+        ? oneballEmbedUrl(decoded, label)
+        : decoded;
+      if (!embedUrl || !safe(embedUrl)) return;
+      results.push({ type: 'embed', url: embedUrl, embedUrls: [embedUrl], originalUrl: pageUrl, customLabel: label });
     });
-    GA.send('oneball_resolve_success', { page_url: pageUrl.slice(0, 80), link_count: results.length, resolve_ms: Date.now() - t0 });
+    GA.send('oneball_resolve_success', { page_url: pageUrl.slice(0, 80), replay_id: oneballReplayId(pageUrl), link_count: results.length, resolve_ms: Date.now() - t0 });
     return results;
   } catch (e) {
     GA.send('oneball_resolve_fail', { page_url: pageUrl.slice(0, 80), error: (e?.message || 'unknown').slice(0, 120) });

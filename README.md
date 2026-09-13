@@ -16,6 +16,16 @@ Channel slugs are restricted to letters, numbers, underscores, and hyphens and a
 
 The existing player UI, controls, keyboard shortcuts, fullscreen handling, picture-in-picture behavior, health monitoring, analytics, and fallback flow remain in place. Bitmovin is loaded only for successfully scraped channel pages. If the page, manifest, credentials, or Bitmovin playback fails, the normal adapter chain and configured backup behavior are used instead.
 
+## OneBall live and replay pages
+
+Pass a OneBall player URL or a live/replay page through the `one` parameter. Direct `player/vplayer.html` URLs are embedded as-is. Live pages continue to use the OneBall API when available. Replay pages such as `https://oneball.live/replay/4566248.html` are fetched and their `.detail-streams` buttons are read from either `href` links or `data-url` attributes. M3U8 replay sources are wrapped in the OneBall `player/vplayer.html` embed with the button label as its title, so the replay page's HD/FHD stream buttons remain independently selectable.
+
+Example:
+
+```text
+https://sports803.github.io/player/?one=https%3A%2F%2Foneball.live%2Freplay%2F4566248.html
+```
+
 ## DASH with ClearKey
 
 Direct DASH manifests are detected from `.mpd` URLs. ClearKey credentials can be provided either with the existing `drmkey=<keyId>:<key>` page parameter or alongside the MPD as `drmScheme=clearkey&drmLicense=<keyId>:<key>`. The player preserves the full MPD URL, including token and DRM query parameters, for the manifest request and passes the normalized 16-byte key pair to the Shaka and dash.js EME adapters.
